@@ -1,0 +1,223 @@
+#+TITLE: 8.885 lecture 2: bayesian parameter estimation
+#+AUTHOR: james gilles
+#+EMAIL: jhgilles@mit.edu
+#+DATE: 06 february 2020
+#+OPTIONS: tex:t latex:t
+#+STARTUP: latexpreview
+
+* revised logistics
+  "extremely enrollment-limited", yikes
+
+  20-30 students getting brought in by email by Sunday; ~5 project groups, 3-5 people
+  (odds: about 50/50? definitely find something else to take if necessary.)
+
+  aiming for: plausible submission to AI / stats conference
+
+  there are public Gen tutorial sessions
+
+  see: syllabus on website was wrong. will be
+
+* in-depth example: automated bayesian data modeling for time series
+  have some interesting data: flights over time; displays linear growth, but also multiple periodic patterns
+
+  want: something to extrapolate all these patterns out into the future
+
+  don't want: to hire an expert
+
+  design a DSL, which creates a space of probabilistic programs P for time series data
+  define a Prior[P] over programs
+  define Likelihood[P](x, y): probability P will output y for x
+
+  have built multiple systems of this form; one in lecture was published... somewhere.
+
+  will build on: gaussian processes.
+  (in theory, lots of useful model systems. in practice: only modeling family that lets us do everything, engineering-wise.)
+
+  surprising discovery: limit of an NN w/ a single hidden layer is... a GP
+
+  math: random function $f: [X] \to [Y]$, which takes list of $X$ and randomly samples list of $Y$.
+
+  *stochastic input-output behavior*: no single output for any input.
+
+  useful: parameterized by *covariance function*, which measures distances on the input space. dictates
+  "shape" of time series.
+
+  built out of *primitive covariances* with *composition rules*.
+
+  GP's are *tractable*; simple routines from linear algebra for bayesian inference.
+
+  how it works: each invocation gives us a randomly sampled curve.
+
+  $[f(x_1), ..., f(x_n)] \sim \mathrm{MultivariateNormal}(0, [K(x_i, x_j)])$
+
+  could represent w/ probabilistic Gen/Julia code, but... amount of useful programs in grammar space is vanishingly small.
+
+  instead: define DSL w/ easy syntax that *compiles* to Gen.
+  then: define probabilistic context-free grammar (like a normal CFG, but... you can sample it?)
+  which lets us sample DSL programs
+
+** question: why this setup?
+  question: why be bayesian?
+  - we believe strongly in our prior? maybe, but not really here.
+  - so that we can sample from posterior, and have better estimates?
+  - lets us quantify uncertainty / describe things as a distribution rather than as a point estimate.
+  - could have nice convergence properties... but for technical reasons, we're not sure if that holds here.
+
+  why not:
+  - easier to work w/ counterfactuals w/ point estimates?
+    (*v*: )
+
+  (*v*: interesting, but... other approach...)
+  in ML sense, what's the loss function? well, it's a loss function. well, okay, then we can just find a
+  kernel that maximizes the gaussian, right?
+
+  take some random data: a perfect solution: fit exactly to the examples + add noise. works! but, it's
+  useless!
+
+  this function space is *so big*, easy to overfit.
+
+  in the era of deep learning: how can we throw data into the machine and get out answers we can trust?
+
+  alternate sol: periodic + noise; fits data well, but strictly speaking has *less likelihood* than
+  perfect sol.
+
+  question: why not find DSL that maximizes Posterior[P](x, y), i.e. find the most likely program?
+  (*jhg*: as opposed to...?)
+
+  observation: you might not want a single model! depending on extensions to data, multiple models
+  could work.
+
+  it's really useful to be able to *hedge our bets*.
+
+** implementation
+   Venture, an ancestor to Gen
+
+   - load the time series data
+   - sample ensemble from prior
+   - do some inference. (e.g.: 1000 steps of metropolis hastings, altering different aspects of the data.)
+
+   results: compared to a bunch of other baselines. this seems to work pretty well in practice!
+
+   can look at data with lots of structures. not the best in all cases, but *pretty good* across a lot
+   of examples.
+
+   quantifying uncertainty: can do syntactic analysis of generated DSL (kernels?), then count elements.
+   e.g. "what's the chance this program contains white noise?"
+
+   interesting project: turn this into a search interface -- "find me time series that started to rise
+   after 2008 economic crash"
+
+   how do we sample? well, define a program to sample syntax trees: hyperparameters, primitives,
+   operators (sum, product, change-point), ...
+
+   (*jhg*: are we only inferring hyperparameters, or are we learning regular parameters as well?)
+
+   *student*: why sample hyperparameters from Gamma dist? eh, no real reason.
+
+   note: this is not nearly as sensitive as point estimation would be; but there's some deep unanswered
+   questions
+
+   *student*: why not make *everything* a random variable? *v*: well, you can... but instead, we just want to turn... almost everything into a random variable.
+
+   *student*: why doesn't this just blow up?? does it work in higher dimensions?
+   *v*: our system has been applied to low-dimensional problems. but GPs have been applied to 10s of dimensions... not hundreds. nothing fundamental about that though. no simple answer. ("all of us could write down intuitions, and we'd all be wrong.")
+
+   straightforward function to compile a GP from the DSL.
+
+   then: we do inference. note: this procedure works for any prob. CFG.
+
+   #+BEGIN_SRC
+   repeat(1000, {
+      infer metropolis_hastings(?structure/*)
+      infer metropolis_hastings(?hypers/*)
+   });
+   #+END_SRC
+
+   note: inference on hyperparameter is familiar to DL; inference on structure is different.
+
+   we could use autodifferentiation instead:
+
+   #+BEGIN_SRC
+   repeat(1000, {
+      infer metropolis_hastings(?structure/*)
+      infer gradient_optimization(?hypers/*)
+   });
+   #+END_SRC
+
+   neat plot: hyperparameter inference in problem. gradient descent discovers *different mode* from posterior distribution.
+
+   *v*: kinda surprising that this works in practice.
+
+   *student*: is this vanilla metropolis hastings? *v*: yeah, but there's lots of others we could try.
+
+   note: LOC: bayesian synthesis (venture + python), 4000 LOC; ABCD system (matlab + python), 14000 LOC.
+
+   interesting: it's *as easy* for us to be bayesian as not; vs other system.
+
+   *jhg*: could you learn the inference process?
+
+** question: is this *enough*? can we just write a probabilistic program over DSLs?
+
+   theoretical issues:
+   - is the prior well-defined?
+   - is the likelihood of data (given program) finite?
+   - does the posterior distribution exist?
+   - does the inference algorithm converge to the posterior?
+
+   *v*: interestingly, we end up having to check a special case of the halting problem here;
+   if you set parameters wrong, you end up... [doing something that doesn't make sense].
+   interesting connections between probability and
+
+* in-depth example: overview of real time inference of simple 3d models from depth video
+
+  most ppls from darpa ppaml: automated inference engine is too inaccuracte / slow, except in special cases.
+
+  Gen: inference program is scalable / accurate
+
+  (*v*: interesting compiler problems here; everything is in the inner loop! also, jitting dsls is
+  unusual 'cause they change over time. okay, back to lecture.)
+
+  system: depth camera; real-time inference of *floor*, *ceiling*, and *camera pose*. then, mark parts
+  of the system you can explain and parts you can't. sorta a first step towards an indoor SLAM system.
+
+  generative model: sample parameters, then render the depths those parameters would give you.
+  also, add noise to the rendered image.
+
+  *v*: how to understand this: there's the *code*, the *trace*, and the *visual mental model*.
+  you need to understand these to get this to work, *not* the math.
+
+  (*jhg*: how is sampling from these spaces at all fast enough?)
+
+  *v*: ABC (always be cross-checking). to quote a senior chip architect: "if I haven't tested it, it
+  doesn't work."
+
+  *student*: the noise can account for objects in the room. *v*: yes!
+
+  interesting empirical surprise: seemingly bone-headed ways to generate noisy unstructured data
+  can work shockingly well.
+
+  bayesian intuition: if noise prior is large, model will think everything is noise. here, it's small
+  and fixed.
+
+  *jhg*: what does it mean for the system to mark something as
+
+  *student*: can we get adversarial noise here?
+
+  the inference program:
+  - get frame
+  - generate initial trace from model
+  - do 1000 steps of MCMC updates.
+
+  *v*: always write + test on synthetic data before we move to real data.
+
+  *v*: mental model of sampling is different from search + optimization.
+
+  *jhg*: what are "constraints"? oh, it's just the depth map.
+
+  so this isn't realtime. how do we get that?
+
+  simplest approach: change for loop to a while loop, redo stuff every frame.
+
+  *jhg*: i'm a little confused about the exact execution model here. it's *not* optimization.
+
+  *v*: sampling often fails because we fail sampling, not the other way around (lol)

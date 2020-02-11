@@ -1,0 +1,69 @@
+#+TITLE: 6.885 Probabilistic Programming: Lecture 1
+#+AUTHOR: james gilles
+#+EMAIL: jhgilles@mit.edu
+#+DATE: 04 february 2020
+#+OPTIONS: tex:t latex:t
+#+STARTUP: latexpreview
+
+there are like 100 people in 34-302 lol
+
+* logistics
+  ideal learning outcomes:
+  - learn about state of the art AI: combining NNs, optimization, monte carlo, graphical models, markov models, bayesian stuff...
+  - read, modify, & write probabilistic programs in Gen
+  - practice writing new stuff in Gen (final project)
+  - want help: improving Gen! language, impl, tooling, ... very early stage
+  - develop prob. programming / AI
+  - practice w/ technical reading & presentations (ooh)
+
+  Course Website: http://probcomp.csail.mit.edu/6-885-spring-2020/
+  PW: Spring2020
+
+  Presentations: alone or in pairs
+
+* overview
+  nn big: but hyped. has limitations.
+
+  how do we build "common-sense" AI models?
+
+  suggestion: prob. programming is the right route for this.
+
+* what is prob. programming?
+  "generative programs" -- stochastically sample unknown parameters.
+
+  meta-models: take generative programs as input and produce programs as output.
+
+  set of operations...
+
+  these operations aren't surprising if you've done things analytically using ...
+
+  difference: we rely on a computer to do these operations, and develop tools to apply them to *any*
+  computable probabilistic programming.
+
+  alarm bells: that's a bold statement! so, we'll find out where we can automate this, where we can
+  make it programmable, ...
+
+* example applications
+** generative genome models
+   goal: make in-silica predictions for novel genome designs
+
+   probabilistic programs: simulators for genomes & all their gene expression values
+   not just looking at correlations; looking at hundreds of thousands of nonlinear interactions
+
+   interesting example: go from messy data representing complex causal interaction in the world,
+   to a simple symbolic system that predicts it well enough to be useful
+
+   (*Mansinghka*: compare these plots to the lines of best fit. a sad thing about the big data resolution:
+   we're throwing out all this wonderful high-resolution data in favor of low-res nonsense.)
+
+** nuclear safety
+   a couple thousand nuclear explosions have happened in human history, they're a big deal.
+
+   big org has huge monitoring system across earth to detect nuclear tests. a critical part of planetary infrastructure.
+   currently: giant data pipeline dumped on a few human operators.
+
+   new program: "open-universe" program that samples events and feeds them to human operators.
+   works better than the previous system; has been put in to place. actually running!
+
+   the power of knowledge-based AI: take knowledge that's implicitly in the minds of human experts,
+   build something that deploys it on a planetary scale.

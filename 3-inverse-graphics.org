@@ -1,0 +1,166 @@
+#+TITLE: 6.885 lecture 3: inverse graphics
+#+AUTHOR: james gilles
+#+EMAIL: jhgilles@mit.edu
+#+DATE: 11 february 2020
+#+OPTIONS: tex:t latex:t
+#+STARTUP: latexpreview
+
+** logistics
+   - a few days for workshopping final projects! don't forget!!
+   - check syllabus on website
+   - classes will be recorded, not posted publicly tho. try to come to lecture anyway
+
+   (*jhg
+* inverse graphics
+** hinton keynote
+   start: AAAI keynotes / turing award winners; give Geoff Hinton a watch
+
+   hinton's been working on graphics for a long time; is critical of CNNs
+
+   theme in psychovision: our perception is closely linked to 3d explanations of sparse 2d data about the world
+
+   we're very sensitive to certain kinds of perturbation but not others
+
+   remedies to convnet problems: "capsules"
+
+   *v*: "I don't want this class to think we're down on deep learning, though we're gonna spend a lot of time criticizing it"
+
+   geoff: talking about generative models that exploit particular feature of deep learning
+
+   prior knowledge about graphics and transformations are easy to wire into a graphics model
+
+   geoff: "enough computation and you can solve anything"
+   *v*: well, yes, in the same way that the early AI people said "enough search and you can solve anything"
+
+** inverse graphics with top-down monte carlo
+   can we make the inverse claim? "enough samples from your prior and you can infer anything"?
+
+   turns out, yes, but in the same way, that's not necessarily useful
+
+   helmholtz: "vision is a process of unconscious inference", e.g. perception of the sun moving down in the sky
+
+   early toy model: block world, 1968. turns out... still an open problem!
+
+   people have been trying hybrids of all sorts of systems.
+
+   direct neural approaches, e.g. early capsule work by geoff.
+
+   the group's paper: Generative Probabilistic Graphics Programming: Taking Inverse Graphics Literally
+   does it work?... sorta!
+
+   4 requirements:
+   1. model written as probabilistic graphics programs
+   2. automatic, general-purpose code for inference ("no bugs in inference code")
+   3. want approximate comparison of rendering and image data, i.e. low resolution variables
+   4. bayesian relaxations, to adaptively smooth the energy landscape
+      "we don't want to be just throwing darts at the wall." simple systems might not converge.
+      but you can include other variables you do inference on along with the scene, e.g. how
+      tightly you're matching the scene.
+
+*** example 1: 2d obscured digits
+    scene generator: $S \sim P(S)$
+    control: $X \sim P(X)$ (e.g. magnitude of gaussian noise)
+    approximate renderer: $I_R = f(S,X)$
+    data: $I_D$
+
+    use stochastic comparison to compute $P(I_D | I_R, X)$
+
+    $P(S | I_D) \propto$ (a complicated integral, there's a delta in there somewhere for the image...)
+
+    *jhg*: are the control variables modeling real properties of the parameter? *v*: good question.
+
+    the actual code: has some wacky lisp stuff that's basically just doing record keeping.
+
+    observing convergence properties: without control variables, doesn't work.
+
+    *v*: please be skeptical! there's some standard intuition, but also some more radical stuff.
+    ... i'm genuinely curious: we're in the folklore stage of probabilistic programs, we need to learn
+    how to reflect on what we know and are surprised by.
+
+    w/ control variables (think of them as annealing parameters, not regularizers): it fits!
+
+    *jhg*: if your model produces something w/ probability 0, does the system break?
+    *v*: yes. in fact: MCMC breaks if sample space isn't fully connected (*jhg*: by prob >0?)
+
+    *jhg*: so how do we describe the posteriors beyond lists of samples? do we fit some distribution to them?
+    can we use them for future inference?
+
+    look at some graphs of convergence: hey, it works better!
+
+    *student*: the graph shows iterations, but what are the raw performance numbers?
+
+    *v*: relaxations are needed to take monte carlo from "almost never works" to "reasonably effective, but kinda mysterious"
+
+    looking at per-letter blur samples: the blur goes up when a letter is introduced, then goes down later, as the system gets more "confident."
+    very interesting!
+
+    looking at captchas w/ non-modeled alterations: it still works!
+
+    *student*: why is that "1" so blurry? it's fully there in the original image. *v*: font mismatch?
+
+*** example 2: finding roads in 3d
+    video of a road, wanna find the road's boundary
+
+    baseline system: Aly 2008; 10_000 LOC C++. gives good results sometimes, wonky in others.
+
+    note: we're approximating geometric regions with color histograms, not actually modeling texture.
+
+    use k-means to quantize image, use histograms over codebook IDs.
+
+    the point here: you can have a crazy inaccurate generative model and it still works okay.
+
+    this system: within 4% accuracy of baseline. With extra stuff: 10% higher!
+
+    the point of this chunk of the lecture: it's actually possible to do the opposite of what hinton said!
+
+    Think of a square: X -- inference time, Y -- inference code memory requirements. (Y axis inverted.)
+    Information theory says there's some threshold: you need some amount of time and space to store properties of distribution.
+
+    rejection sampling has very high X, low Y.
+    DL has very high Y, low X.
+    MCMC has medium X, low Y.
+
+    but the real question: how do we get to low X *and* low Y? that's where the organism seems to be.
+
+    *v*: possible final project: estimating how close a trained model is to real posterior
+
+* a more practical approach: picture
+  example problems:
+  - 3d face models
+  - pose models
+  - 3d solids (bottles, glasses)
+
+  note: the models are bad! low-resolution; they only connect to the *causality* of vision
+
+  *jhg*: the priors here may have little to do with the (priors of) physical world, but the model fits very quickly anyway... interesting.
+  i wonder if there's work that can connect this, deep learning convergence, and SMT convergence?
+
+  *jhg*: a frequentist interpretation of this work: these algorithms... frequently converge. yeet
+
+  *jhg*: could you use some sort of fluid simulation / 3d mesh as a prior over images?
+
+  *v*: fundamental question: how is it possible to see??
+  *v* there's results we're gonna see in a month suggesting that markov models / DL aren't nearly as data efficient.
+
+  *jhg*: oh, there's another toy problem: chess problems, prior is enemy strategy
+  ...isn't that basically how AlphaGo works already? it's just modeling a markov chain transition function.
+
+  *v*: interesting direction: "cleaning up" neural models by adding this approach
+  *v*: interesting direction: low-poly models
+  *v*: interesting direction: places where we have high-quality datasets
+
+  *student*: how do you scale this to real-world scenes?
+
+  *v*: i envision a similar way to how computer graphics scaled: start with simple scenes, ground them in rigourous principles
+  e.g. the rendering equation, and build up iteratively over time. (*jhg*: but computer graphics didn't use very rigorous
+  models for a long time... physically-based rendering only took off the last few years.)
+
+  *student*: does the field agree on the loss function between images?
+  *v*: no. i'm optimistic about modeling point-clouds though.
+
+  *jhg*: an observation about my understanding of the world: focus is concentrated on some particular point;
+  highly detailed textures are present only at one point on the retina.
+  could you build systems that sample specifically where they're least confident? does MCMC already do that?
+
+  *jhg*: can you use this to model DL learning?
+  *jhg*: can you use this to model adv examples?

@@ -1,0 +1,33 @@
+#+TITLE: 6.885 lecture 5: how to combine automated bayesian data modeling with domain knowledge
+#+AUTHOR: james gilles
+#+EMAIL: jhgilles@mit.edu
+#+DATE: 20 february 2020
+#+OPTIONS: tex:t latex:t
+#+STARTUP: latexpreview
+
+* intro
+  various businesses are trying this out.
+
+  the problem is kinda invisible: easy to think "hey, people have R, statistics is fine"
+
+  bill + melinda gates foundation project
+  - policy advocate
+  - domain expert
+  - field researcher
+  - statistician
+  how do we: check our assumptions, bring in new data, ...
+  -> some narrow solutions
+
+  problem: using sparse data to learn interactions within a whole genome
+  works okay, about as well as biologists expect
+  can apply data-flow analysis + ... to programs, learn interactions and rules
+  simple modeling (linear correlations w/ gaussian): totally fails
+  fancy modeling (whole-program bayesian): works well
+
+  bayesdb: basic stuff to causal/mechanistic modeling
+
+  "we have to accept statistical incompetence as the norm"
+
+  anything more complicated than a spreadsheet is going to be hard to convince people with
+
+  data analysis is in practice, crazy

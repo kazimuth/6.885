@@ -1,0 +1,4 @@
+
+- plug in taichi
+- model taichi transforms
+- undoing blurring

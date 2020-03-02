@@ -1,0 +1,63 @@
+#+TITLE: lecture 6: programmable inference
+#+AUTHOR: james gilles
+#+EMAIL: jhgilles@mit.edu
+#+DATE: 25 february 2020
+#+OPTIONS: tex:t latex:t
+#+STARTUP: latexpreview
+
+[missed start, TODO: lecture]
+
+* sample code
+  (in Venture)
+  #+BEGIN_SRC
+  assume x = normal(0.0, 1.0) #latents:"x";
+  assume y = normal(0.0, 1.0) #latents:"y";
+  observe normal(x + y, 1.0) = 3.0;
+
+  // find maximally probable setting of parameters (does normal gradient thing, slides towards maxima)
+  repeat(100,
+     infer gradient_ascent(minimal_subproblem(/?latents/*), 0.01));
+
+  // characterize distributions (jumps around)
+  repeat(100,
+     infer resimulation_mh(/?latents/x));
+  #+END_SRC
+
+  *jhg*: does observe x + y = 3.0 make sense? *v*: things break down quickly.
+
+  *student*: the MH simulation isn't converging. *v*: ah, but is it supposed to converge? no, it's sampling the distribution
+
+  *jhg*: what do we do with this list of samples characterizing the distribution? *v*: we'll get there.
+
+  (*jhg*: so, gradient ascent is ascending on the posterior prob. of those parameters, not on anything simpler.)
+
+  #+BEGIN_SRC
+  resample(10); // collect 10 samples
+  repeat(100,
+     infer gradient_ascent(minimal_subproblem(/?latents/*), 0.01));
+  repeat(100,
+     infer resimulation_mh(minimal_subproblem(/?latents/*), 0.01));
+
+  resample(100); // collect 10 samples
+  // converges to principal axis of prior but then gets stuck
+  repeat(100,
+     infer gradient_ascent(random_singleton(/?latents/*)));
+  #+END_SRC
+
+  *v*: unless i build an interactive harness, I won't know if my stuff is working.
+  maybe i can make a graph where my line is higher than a competitor's line, but it doesn't mean shit.
+  getting this to work and visually seeing how it behaves is actually quite mysterious!
+  take the time (even if it's 3 weeks!) to build this viz harness. if you do that, you might learn something,
+  and you might be able to debug your code.
+
+  components:
+  - visualize traces
+  - compare traces between inference algorithms
+
+  also, numerical gridding is v. helpful. do that to compare w/ monte carlo sampling.
+
+  you can interleave different deterministic control + heuristics
+
+  *jhg*: this class really wants just a class on what markov-chain monte-carlo is, and how it works.)
+
+* compiling neural proposals

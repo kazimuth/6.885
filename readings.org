@@ -5,6 +5,9 @@
 #+OPTIONS: tex:t latex:t
 #+STARTUP: latexpreview
 
+#+LATEX_HEADER: \newcommand{\prob}[0]{\mathrm{p}}}
+#+LATEX_HEADER: \newcommand{\df}[1]{\mathrm{d} #1}
+
 http://probcomp.csail.mit.edu/reading-list/
 
 * When are probabilistic programs probably computationally tractable?
@@ -162,3 +165,61 @@ http://probcomp.csail.mit.edu/reading-list/
    https://plato.stanford.edu/entries/confirmation/
 
    > In contemporary philosophy, confirmation theory can be roughly described as the area where efforts have been made to take up the challenge of defining plausible models of non-deductive reasoning. Its central technical term -- confirmation -- has often been used more or less interchangeably with “evidential support”, “inductive strength”, and the like.
+
+* MCMC reading
+** inference
+  https://towardsdatascience.com/bayesian-inference-problem-mcmc-and-variational-inference-25a8aa9bce29
+
+  $$\prob(\theta | x) = \frac{\prob(x | \theta) \prob(\theta)}{\prob(x)}$$
+
+  $\prob(\theta)$ : prior
+  $\prob(x | \theta)$ : likelihood
+
+  $$\prob(x) = \int_\theta \prob(x | \theta) \prob(\theta) \; \df{\theta}$$ : evidence
+
+** monte carlo
+  https://en.wikipedia.org/wiki/Monte_Carlo_method
+
+  simulations using random sampling to compute something.
+
+  > There is no consensus on how Monte Carlo should be defined. For example, Ripley[49] defines most probabilistic modeling as stochastic simulation, with Monte Carlo being reserved for Monte Carlo integration and Monte Carlo statistical tests. Sawilowsky[50] distinguishes between a simulation, a Monte Carlo method, and a Monte Carlo simulation: a simulation is a fictitious representation of reality, a Monte Carlo method is a technique that can be used to solve a mathematical or statistical problem, and a Monte Carlo simulation uses repeated sampling to obtain the statistical properties of some phenomenon (or behavior). Examples:
+
+** monte carlo integration
+  https://en.wikipedia.org/wiki/Monte_Carlo_integration
+
+  problem: compute multidimensional definite integral:
+
+  $$I=\int _{{\Omega }}f(\overline {{\mathbf {x}}})\,d\overline {{\mathbf {x}}}$$
+
+  where $\Omega$, a subset of $\mathbb{R}^m$, has volume
+
+  $$V=\int _{\Omega }d{\overline {\mathbf {x} }}$$
+
+  Then:
+
+  $$I\approx Q_{N}\equiv V{\frac {1}{N}}\sum _{i=1}^{N}f({\overline {\mathbf {x} }}_{i})=V\langle f\rangle $$
+
+  and $\lim_{N \to \infty} Q_N = I$ by the law of large numbers.
+
+** metropolis-hastings
+  https://en.wikipedia.org/wiki/Metropolis%E2%80%93Hastings_algorithm
+
+  get sequence of samples from some probability distribution.
+  all you need is some function f propto the distribution.
+
+  generate potential move; with prob f(proposal)/f(current), accept the move. otherwise, stay where you are.
+
+  this turns out to work.
+
+
+* Gen paper
+  > Probability theory provides specifications for various tasks involving generative models including inferring the values of latent variables from values of observed variables given an assumed generative model. This task, which is called posterior inference in the context of Bayesian statistics, requires conditioning the joint distribution over latent and observed variables on the event that the observed variables took certain values. The latent variables may include numerical variables (often called parameters) as well as combinatorial discrete objects (often called structure). Inferences about the latent variables may take the form of (i) samples from the conditional probability distribution on the latent variables, (ii) an analytic representation of the conditional distribution, or (iii) some summary of the conditional distribution, such as the single value with maximum probability (as in maximum a posteriori or ‘MAP’ inference).
+
+  monte carlo: list of samples from posterior (e.g. rejection sampling, MCMC)
+
+  variational: get a distribution numerically optimized to closely match desired distribution
+
+  key insight: metropolis-hastings in Gen is not fitting the "best" parameters. it's generating samples from the posterior distribution on the parameters, conditioned on the data.
+
+* TODO From Scratch: Bayesian Inference, Markov Chain Monte Carlo and Metropolis Hastings, in python
+  https://towardsdatascience.com/from-scratch-bayesian-inference-markov-chain-monte-carlo-and-metropolis-hastings-in-python-ef21a29e25a

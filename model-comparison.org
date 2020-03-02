@@ -1,0 +1,6 @@
+#+TITLE: notes on: Information Theory, Inference, and Learning Algorithms (Chapter 28, Model Comparison and Occam’s Razor) by David MacKay
+#+AUTHOR: james gilles
+#+EMAIL: jhgilles@mit.edu
+#+DATE: 18 february 2020
+#+OPTIONS: tex:t latex:t
+#+STARTUP: latexpreview

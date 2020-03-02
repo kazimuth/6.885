@@ -1,0 +1,156 @@
+#+TITLE: 6.885 lecture 4: reverse-engineering common sense
+#+AUTHOR: james gilles
+#+EMAIL: jhgilles@mit.edu
+#+DATE: 13 february 2020
+#+OPTIONS: tex:t latex:t
+#+STARTUP: latexpreview
+
+intro: some
+
+* class project news
+  mask-RCNN: result video
+  robustness failure: flickering
+
+  you see similar results in many purely neural perception systems, despite the fact that
+  there are known engineering solutions to this issue.
+
+  also: strange lapses in pose estimations
+
+  also: adv examples
+
+  there are sweeping critiques of waves of AI, e.g. symbolic representations.
+  good idea: take similar critical eye on current wave.
+
+  companies incubating prob. prog. talk about difficulties bringing AI to the field.
+
+  gen. models that include the knowledge that objects move smoothly, solving the first two issues.
+
+  gen. model that knows what turtles / rifles look like might be able to solve the third issue.
+  -> take DL output as first guess, generate image, get likelihood score. (alt. to adv training.)
+
+  *student*: could we just model the output of NN as a sensor and use standard control systems stuff?
+  *v*: yes, that's how i suggest you start.
+
+  (*jhg*: could you use Gen to describe categories of error in NN?)
+
+  *v* opinion on adv examples: computer graphics gives best generative models.
+
+  *jhg*: can you do similar to adv examples, infer some input that produces large change in posterior?
+  *v*: one of the TAs is working with Mike Carbin on a project re: meta-inference?? -> to creating adv examples.
+  *v*: also: you could hook a generative model, differentiable raytracer, model viewer: an angle of attack on what "sorta things" are adv. vulnerable. (!!!)
+  *v*: in general, you can think of this problem as similar technique to adv examples, but on a broader class of models and training techniques.
+
+* "common sense": a grand challenge
+  example: a 18-month-old interacting with an environment. how can we possibly get there?
+
+  focus: understanding and manipulating physical objects.
+
+  common approach: reverse-engineering "common sense" using prob. prog.s defined over game engines.
+
+  *v*: imo, best approach is trying to find small parts of this that are tractable to model.
+
+  "what might it mean to have a game engine in the head?"
+
+  look at whole game engine as a causal model -- can we glean something about information flow?
+
+  josh tenenbaum model:
+  physics -> world agent, state -> perception -> simulation: beliefs, desires -> planning -> actions -> back to physics
+
+  we'll look at useful and lackluster elements of this model.
+
+  exploring the intuitive physics engine: look at pictures of blocks. do you think they're stable?
+  ...look at the texture of the responses: different answers, confidences, reaction times.
+
+  one proposal for how this works: some very noisy internal physics engine, accessible to the mind.
+  (*v*: although this theory doesn't draw any lines between what's penetrable vs. impenetrable to the mind.)
+  a "structured, numerical representation" in the head.
+
+  example: modeling blocks correlates well with human judgment.
+
+  *student*: what do we infer from this? we can't make long-range predictions.
+
+  *v*: let's discuss. whose viewpoint is the "reference"?
+  some psychologists have argued very stridently that there's no physics engine in the mind.
+  e.g. sensorimotor intelligence, playing Jenga: we can learn it very quickly.
+  this graph: shows there's quantitative evidence for a physics-engine-like ...
+  one other answer: "what's the big deal? we know cognition works, sorta."
+  *v*: this is similar to how the public responds to AI news. w/o a framework,
+  not easy to judge.
+  *v*: this work leads to building that framework.
+  *v*: i *can* make long-range predictions about the behavior of many objects in this room -- as long as nobody pushes them!
+
+  the requirements are complicated -- different time resolutions, noise levels, ...
+  ...the accuracy-latency tradeoff space.
+
+  "one's field of reference has a lot to do with the answer."
+
+  *student*: "does it really fall down?"
+  *v*: you mean, in the original simulation??
+
+  graph: predictions from ground truth physics:
+
+  *v*: interesting study: try changing stakes / available time.
+
+  *student*: we can think of natural selection pushing towards better interpretation. could you compare objects humans
+  saw in the past to new ones?
+
+  *v*: sure... but humans didn't evolve in the anthrocene. we learn the properties of thousands of objects.
+  so the process may be drawing from things learned in the past... but the cognitive timescale seems much faster.
+
+  solution with a neural net: takes a few hundred thousand training images for scenes w/ 2-4 cubes; fails in all kinds of ways.
+
+  openAI result: you *can* fit nns to these problems... if you're willing to wait evolutionary timescales, on problems
+  humans can solve in cognitive timescales.
+
+  *student*: how fast can you simulate these?
+  *v*: milliseconds... that's the key constraint of inverse graphics.
+
+  generally: nns are fragile in these settings. fail in all sorts of ways.
+
+  (*jhg*: but aren't we using NNs? ... well, not ANNs with gradient descent.)
+
+  (*jhg*: what if you used an NN trained w/ a differentiable physics engine and renderer? ...somehow?)
+
+  there's a paper on infants that can do this...
+
+  *v*: infant paradigm is different from adults. they'll stare at something for a long time, get habituated; kinda more like training a neural network, weirdly enough...
+
+  there'll be a later paper on evidence for inference in the mind.
+
+  so. what about inferences about other people? what they want, what they feel?
+
+  prob. physical model can predict a human reaching for some object
+
+
+* how do we write these programs?
+  projects between MIT and IBM AI working on this...
+
+  looking at objects represented w/ game engine data.
+
+  e.g. some blocks on top of each other.
+  1 case: in contact
+  other case: just happen to be floating! (*laughs*)
+  *v*: well, i hope you're laughing at NNs too. because this is a symbolic relation!
+
+  (*jhg*: might NNs be learning something similar to inference?)
+
+* inferring goals of agents
+  inferring goals from reverse action planning...
+
+  drone example....
+
+  the prob. model: a sparse tree, path planning on the tree, then gradient descent on the path.
+  nice and extensible...
+
+  rewriting in gen... look at trace as a graph. wow, that's wacky.
+
+  important idea: our ideas about intelligence are as much a reflection of the tools we have as
+  of intelligence.
+
+  *v*: "I'm not enough of a gamer to give you the whole ontology, but there *is* a whole ontology of video games."
+
+  *jhg*: idea: build a game AI w/ prob. programming
+
+  interesting hard problem, once you've got the scene rep.: how do you do general goal inference?
+
+  "just do mcmc" / "just generate data and train a neural net" are simple, degenerate solutions

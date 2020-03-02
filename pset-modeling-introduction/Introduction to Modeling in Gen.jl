@@ -376,7 +376,7 @@ function render_trace(trace; show_data=true, limit_y=true)
     intercept = trace[:intercept]
 
     # Draw the line
-    plot([xmin, xmax], slope *  [xmin, xmax] .+ intercept, color="black", alpha=0.5)
+    plot([xmin, xmax], slope *  [xmin, xmax] .+ intercept, color="black", alpha=0.2)
     ax = gca()
     ax.set_xlim((xmin, xmax))
     if limit_y
@@ -411,6 +411,22 @@ grid(render_trace, traces)
 #
 # Write a generative function that uses the same address twice. Run it to see
 # what happens.
+
+@gen function nonsense()
+    x = {:x} ~ normal(0, 1)
+    y = {:x} ~ normal(0, 10)
+    {:z} ~ normal(x, y)
+end
+
+Gen.simulate(nonsense, ())
+
+@gen function nonsense_fixed()
+    x = {:x} ~ normal(0, 1)
+    y = {:y} ~ normal(0, 10)
+    {:z} ~ normal(x, y)
+end
+
+println(get_choices(Gen.simulate(nonsense_fixed, ())))
 
 # -------------------------------------------------
 # ### Problem 1.1
@@ -450,11 +466,14 @@ grid(render_trace, traces)
 # ### Solution 1.1
 
 @gen function sine_model(xs::Vector{Float64})
-    # < your code here >
-
+    a = {:amplitude} ~ gamma(1, 1)
+    p = {:period} ~ gamma(1, 1)
+    ϕ = {:phase} ~ uniform(0, 2pi)
+    
     function y(x)
-        return 1 # < Edit this line >
+        return a * sin(2π*x/p + ϕ)
     end
+    
     for (i, x) in enumerate(xs)
         {(:y, i)} ~ normal(y(x), 0.1)
     end
@@ -474,7 +493,7 @@ function render_sine_trace(trace; show_data=true, limit_y=true)
     xmax = maximum(xs)
     test_xs = collect(range(-5, stop=5, length=1000))
     y = get_retval(trace)
-    plot(test_xs, map(y, test_xs), color="black", alpha=0.5)
+    plot(test_xs, map(y, test_xs), color="black", alpha=0.2)
     ax = gca()
     ax.set_xlim((xmin, xmax))
     if limit_y
@@ -492,8 +511,6 @@ end;
 #     render_sine_trace(trace)
 # end
 # ```
-
-
 
 # ### Plot your results.
 #
@@ -610,6 +627,18 @@ title("Oberved data and posterior samples");
 # algorithm with this value set to `1`, `10`, and `1000`, etc.  Which value
 # seems like a good tradeoff between accuracy and running time? Discuss.
 
+function render_posterior_a(amount_of_computation)
+    traces = [do_inference(line_model, xs, ys, amount_of_computation) for _=1:10];
+    figure(figsize=(3,3))
+    overlay(render_trace, traces);
+    xlabel("X");
+    ylabel("Y");
+    title("Oberved data and posterior samples ($amount_of_computation)");
+end
+render_posterior_a(1), render_posterior_a(10), render_posterior_a(100), render_posterior_a(1000);
+
+# *If this was ML i would be inclined to say that the model is overfitting. But it's possible that the true posterior distribution is just that tight? Not sure.*
+
 # ------------------
 #
 # ### Problem 1.2
@@ -635,20 +664,29 @@ title("Oberved data (sinusoidal)");
 
 # ### Solution 1.2
 
+# old model
+posterior_traces = [do_inference(sine_model, xs, ys_sine, 100) for _=1:10]
+figure(figsize=(3,3))
+overlay(render_sine_trace, posterior_traces)
+
 # +
 @gen function sine_model_g51(xs::Vector{Float64})
-    # < put your code>
+    a = {:amplitude} ~ gamma(1, 1)
+    p = {:period} ~ gamma(5, 1)
+    ϕ = {:phase} ~ uniform(0, 2pi)
+    
     function y(x)
-        return 1 # < Edit this line >
+        return a * sin(2π*x/p + ϕ)
     end
+    
     for (i, x) in enumerate(xs)
         {(:y, i)} ~ normal(y(x), 0.1)
     end
 
     return y
-    end;
+end;
 
-posterior_traces = [] # Edit this line
+posterior_traces = [do_inference(sine_model_g51, xs, ys_sine, 100) for _=1:10]
 figure(figsize=(3,3))
 overlay(render_sine_trace, posterior_traces)
 # -
@@ -662,10 +700,10 @@ overlay(render_sine_trace, posterior_traces)
 # Put your answer to the free text question below.
 
 # + active=""
+# The gamma distribution with *k=5* weights longer periods much more heavily than with *k=1*, making it more likely to find a good fit.
 #
+# (I don't really understand why we're modeling this with a Gamma distribution anyway, honestly. What does the time until the 5th event with an event density of 1 have to do with selecting a period?)
 # -
-
-
 
 # ## 4. Predicting new data  <a name="predicting-data"></a>
 #
@@ -688,7 +726,7 @@ figure(figsize=(3,3))
 render_trace(trace);
 xlabel("X");
 ylabel("Y");
-title("Predictions for the vector xs\ngiven slope = 0 and intercept = 0")
+title("Predictions for the vector xs\ngiven slope = 0 and intercept = 0");
 
 # Note that the random choices corresponding to the y-coordinates are still
 # made randomly. Run the cell above a few times to verify this.
@@ -875,27 +913,31 @@ plot_predictions(xs, ys_noisy, new_xs, pred_ys)
 # ### Solution 1.3
 
 @gen function sine_model_fancy(xs::Vector{Float64})
-
-    # < your code here >
-
-    for (i, x) in enumerate(xs)
-        {(:y, i)} ~ normal(0., 0.1) # < edit this line >
+    a = {:amplitude} ~ gamma(1, 1)
+    p = {:period} ~ gamma(5, 1)
+    ϕ = {:phase} ~ uniform(0, 2pi)
+    σ = {:noise} ~ gamma(1, 1)
+    
+    function y(x)
+        return a * sin(2π*x/p + ϕ)
     end
-    return nothing
+    
+    for (i, x) in enumerate(xs)
+        {(:y, i)} ~ normal(y(x), σ)
+    end
+    return y
 end;
 
 # +
 figure(figsize=(6,3))
 
-# Modify the line below>
-pred_ys = infer_and_predict(sine_model, xs, ys_sine, new_xs, [], 20, 1)
+pred_ys = infer_and_predict(sine_model, xs, ys_sine, new_xs, [:amplitude, :phase, :period], 20, 1000)
 
 subplot(1, 2, 1)
 title("Fixed noise level")
 plot_predictions(xs, ys_sine, new_xs, pred_ys)
 
-# Modify the line below>
-pred_ys = infer_and_predict(sine_model_fancy, xs, ys_sine, new_xs, [], 20, 1)
+pred_ys = infer_and_predict(sine_model_fancy, xs, ys_sine, new_xs, [:amplitude, :phase, :period, :noise], 20, 1000)
 
 subplot(1, 2, 2)
 title("Inferred noise level")
@@ -904,22 +946,22 @@ plot_predictions(xs, ys_sine, new_xs, pred_ys)
 # +
 figure(figsize=(6,3))
 
-# Modify the line below>
-pred_ys = infer_and_predict(sine_model, xs, ys_noisy, new_xs, [], 20, 1)
+pred_ys = infer_and_predict(sine_model, xs, ys_noisy, new_xs, [:amplitude, :phase, :period], 20, 1000)
 
 subplot(1, 2, 1)
 title("Fixed noise level")
 plot_predictions(xs, ys_noisy, new_xs, pred_ys)
 
 # Modify the line below>
-pred_ys = infer_and_predict(sine_model_fancy, xs, ys_noisy, new_xs, [], 20, 1)
+pred_ys = infer_and_predict(sine_model_fancy, xs, ys_noisy, new_xs, [:amplitude, :phase, :period, :noise], 20, 1000)
 
 subplot(1, 2, 2)
 title("Inferred noise level")
 plot_predictions(xs, ys_noisy, new_xs, pred_ys)
+
+# + active=""
+# I bumped up the computation to 1000 on both problems. The souped-up model was able to fit the sine dataset much better, although it still fared poorly on ys_noisy dataset, which strikes me as more linear than sinusoidal. I kept the upped gamma parameter for period since that seemed to work better.
 # -
-
-
 
 
 # ## 5. Calling other generative functions  <a name="calling-functions"></a>
@@ -1096,15 +1138,38 @@ ylabel("Y");
 # ### Solution To Optional Exercise
 
 @gen function line_model_refactored()
-    # < your code here >
+    slope = ({:slope} ~ normal(0, 1))
+    intercept = ({:intercept} ~ normal(0, 2))
+
+    y(x) = slope * x + intercept
+    
+    y
 end;
 
 @gen function sine_model_refactored()
-    # < your code here >
+    a = {:a} ~ gamma(1, 1)
+    p = {:p} ~ gamma(5, 1)
+    ϕ = {:ϕ} ~ uniform(0, 2pi)
+    
+    y(x) = a * sin(2π*x/p + ϕ)
+
+    y
 end;
 
 @gen function combined_model_refactored(xs::Vector{Float64})
-    # < your code here >
+    noise = ({:noise} ~ gamma(1, 1))
+    
+    if ({:is_line} ~ bernoulli(0.5))
+        y = {*} ~ line_model_refactored()
+    else
+        y = {*} ~ sine_model_refactored()
+    end
+
+    for (i, x) in enumerate(xs)
+        {(:y, i)} ~ normal(y(x), noise)
+    end
+    
+    y
 end;
 
 function render_combined_refactored(trace; show_data=true)
@@ -1115,9 +1180,10 @@ function render_combined_refactored(trace; show_data=true)
         ys = [trace[(:y, i)] for i=1:length(xs)]
         scatter(xs, ys, c="black")
     end
-
-    # < your code here >
-
+    
+    test_xs = collect(range(-5, stop=5, length=1000))
+    y = get_retval(trace)
+    plot(test_xs, map(y, test_xs), color="black", alpha=0.2)
     ax = gca()
     ax.set_xlim((xmin, xmax))
     ax.set_ylim((xmin, xmax))
@@ -1349,12 +1415,24 @@ grid(render_changepoint_model_trace, traces)
 # +
 # Define additional function(s) here.
 
-function get_number_of_changepoints(trace)::Int64
-    # Edit this line; define additional functions above to compute the result.
-    # It should return an integer (Int64)
-    return 42
+function get_changepoints_rec(trace, cur_path)::Int64
+    #...wait, were we supposed to use the Node types here lol
+    if trace[foldr(Pair, vcat(cur_path, :isleaf))]
+        0
+    else
+        left = get_changepoints_rec(trace, vcat(cur_path, :left))
+        right = get_changepoints_rec(trace, vcat(cur_path, :right))
+        1 + left + right
+    end
 end
 
+function get_number_of_changepoints(trace)::Int64    
+    return get_changepoints_rec(trace, [:tree])
+end
+
+[get_number_of_changepoints(t) for t in traces]
+
+# +
 # Compute and plot the results for simple data.
 traces_given_simple_data = [do_inference(changepoint_model, xs_dense, ys_simple, 10000) for _=1:50]
 figure(figsize=(3,3))
@@ -1402,17 +1480,53 @@ title("Posterior distribution on changepoints \n given complex data");
     # two coefficients to sample (slope and intercept). And with quadratics,
     # three coefficients... and so on.
     
-    # sample coefficients (each from normal(0, 1)):
+    # sample coefficients (each from normal(0, 1))
+    coefficients = [
+        ({(:c, i)} ~ normal(0, 1))
+        for i in 0:degree
+    ]
     
+    f(x) = sum((x .^ (0:degree)) .* coefficients)
+
     # sample ys:
     for (i, x) in enumerate(xs)
         # Edit the following line to sample around 
         # the polynomial's value at x, not zero.
-        {(:y, i)} ~ normal(0, noise)
+        {(:y, i)} ~ normal(f(x), noise)
     end
+    
+    f
 end;
 
+function render_polynomial_model(trace; show_data=true)
+    xs = Gen.get_args(trace)[1]
 
+    xmin = minimum(xs)
+    xmax = maximum(xs)
+    if show_data
+        ys = [trace[(:y, i)] for i=1:length(xs)]
+        scatter(xs, ys, c="black")
+    end
+    
+    test_xs = collect(range(-5, stop=5, length=1000))
+    f = get_retval(trace)
+    plot(test_xs, map(f, test_xs), color="black", alpha=0.2)
+    ax = gca()
+    ax.set_xlim((xmin, xmax))
+    ax.set_ylim((xmin * 4, xmax * 4))
+end;
+
+traces = [do_inference(polynomial_model, xs, [3*x+2 for x in xs], 10000) for _ in 1:10]
+overlay(render_polynomial_model, traces);
+
+traces = [do_inference(polynomial_model, xs, [-x^2 for x in xs], 10000) for _ in 1:10]
+overlay(render_polynomial_model, traces);
+
+traces = [do_inference(polynomial_model, xs, [x^3 + x^2 - x for x in xs], 10000) for _ in 1:10]
+overlay(render_polynomial_model, traces);
+
+traces = [do_inference(polynomial_model, xs, [x^4 - 2*x^2 - x for x in xs], 10000) for _ in 1:10]
+overlay(render_polynomial_model, traces);
 
 # Run the cell below to try doing inference in your polynomial model. It tests
 # it on data generated from the following functions:
@@ -1431,3 +1545,5 @@ println("Quartic data, inferred degree $(do_inference(polynomial_model, xs, [x^4
 
 include("/home/auto_grading.jl")
 test_introduction_to_modeling()
+
+

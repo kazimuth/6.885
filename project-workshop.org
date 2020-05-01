@@ -1,0 +1,25 @@
+#+TITLE: project ideas workshop
+#+AUTHOR: james gilles
+#+EMAIL: jhgilles@mit.edu
+#+DATE: 10 march 2020
+#+OPTIONS: tex:t latex:t
+#+STARTUP: latexpreview
+
+* intro
+  videoconferencing ... emojis ...
+
+  ...There's a piazza???
+
+  goal: workshop topics, align teams, figure out what we
+
+* clusters
+  vikash will make a list of broad clusters + assignments
+
+  TODO: chat with Jessie Rosenberg re: physics: could give me something to model
+
+  TODO: chat with Hailey / Mira re: teaching students. (tactile CAS?)
+
+  dhaval: adv resilience with PBS
+  kathi: out-of-distribution image detection, computer vision
+
+  ali: surrogate ocean turbulence in climate models

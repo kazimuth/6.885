@@ -7,54 +7,69 @@
 
 #+LATEX_HEADER: \newcommand{\prob}[0]{\mathrm{p}}}
 #+LATEX_HEADER: \newcommand{\df}[1]{\mathrm{d} #1}
+#+LATEX_HEADER: \newcommand{\samples}[0]{\sim}
+#+LATEX_HEADER: \newcommand{\given}[0]{\;|\;}
+#+LATEX_HEADER: \newcommand{\Poisson}[0]{\mathrm{Poisson}}
+#+LATEX_HEADER: \newcommand{\Exp}[0]{\mathrm{Exp}}
 
 http://probcomp.csail.mit.edu/reading-list/
 
-* When are probabilistic programs probably computationally tractable?
-  http://danroy.org/papers/FreerManRoy-NIPSMC-2010.pdf
+* what is...
+** rejection sampling?
+   https://en.wikipedia.org/wiki/Rejection_sampling
 
-  Two core questions:
+   ...this is the dumb algorithm from statmech...
 
-  a. What conditions suffice for Bayesian inference by posterior simulation to be computationally efficient?
-  b. How should probabilistic programmers write their probabilistic programs so as to maximize their probable tractability?
+** markov chain monte carlo?
+   https://en.wikipedia.org/wiki/Markov_chain_Monte_Carlo
 
-  Three notes:
+   In statistics, Markov chain Monte Carlo (MCMC) methods comprise a class of algorithms for sampling from a probability distribution. By constructing a Markov chain that has the desired distribution as its equilibrium distribution, one can obtain a sample of the desired distribution by recording states from the chain. The more steps that are included, the more closely the distribution of the sample matches the actual desired distribution. Various algorithms exist for constructing chains, including the Metropolis–Hastings algorithm.
 
-  1. Surprise upper-bounds the complexity of exact posterior simulation. In fact, the surprise in thedata can sometimes provide
-     a sharper characterization of the computational tractability of posterior simulation than measures based on, e.g.,
-     the dimensionality, tree-width of an underlying graphical model, etc.
+   ...this is the smart algorithm from statmech...
 
-  2. Approximate posterior simulation is sometimes quite tractable, especially when either the surprise can be broken into
-     small steps, or the constraints (induced by the data) on the program’s random choices are sparsely overlapping.
+** a tempering method?
+** confirmation theory?
+   https://plato.stanford.edu/entries/confirmation/
 
-  3. Probabilistic programmers can increase the likely tractability of their programs, without resorting
-     to tempering methods, by designing them to be self-relaxing.
+   > In contemporary philosophy, confirmation theory can be roughly described as the area where efforts have been made to take up the challenge of defining plausible models of non-deductive reasoning. Its central technical term -- confirmation -- has often been used more or less interchangeably with “evidential support”, “inductive strength”, and the like.
 
-** 1: surprise upper-bounds complexity of simulation
-   > We have two constructive results showing that exact posterior simulation via rejection is tractable when the data are not too surprising, or when the surprise can be broken down into a short enough sequence of sufficiently unsurprising steps. These results provide a conservative estimate of the difficulty of practical probabilistic programming.
+* Why I am not a Bayesian
 
-   Also more sharply bound things than classical "syntactic" results.
+  Confirmation theories (i.e. theories of inductive logic): currently mostly focus on probability.
+  However, this hasn't generally been useful in the history of science.
 
-   > Importantly, our results do not underestimate the anticipated complexity of problemsbelieved to be truly hard (e.g., inverting cryptosystems).
+  > Probability is a distinctly minor note in the history of scientific argument.
 
-   ...some analytic analysis of rejection sampling...
+  So is science just a bunch of random guesses then?...
 
-   > Sloganized, then, this result says that concept classes that admit tight generalization bounds also admit tractable rejection samplers, and vice versa.
+  Bayesianism asserts that we have "degrees of belief", and these degrees of belief can be modeled as probabilities, and measured
+  by having people place bets and assuming that they will only take bets whose expected values are positive.
 
-** 2: approximate posterior simulation is sometimes quite tractable
-   e.g. MCMC
+  - degrees of belief: yeah sure, in some cases
+  - modeled as probabilities: hmmm
+  - ...that can be measured placing bets: lol no
 
-** 3: probabilistic programmers can increase the likely tractability of their programs by designing them to be self-relaxing.
-   > The key idea takes inspiration from an aspect of evolution: complex structures often arise in part because there is a smooth bridge along which fitness mostly increases, running through intermediate structures. The very high dimensional nature of the space of possible structures provides the degrees of freedom that enable these smooth paths to exist. Annealing-type methods attempt to introduce this kind of structure in a post-hoc fashion, by adding variables like temperature (or byco-opting variables like various weighting parameters) and smoothly changing them in ways that facilitate mixing.
+  bayesianism provides no link to reality. however, result: all bayesians will converge to the truth.
+  ...but, reviewed: actually only shows that *bayesians believe bayesians will converge to the truth*.
 
-   > Our approach is motivated by a different intuition: one driver of slow convergence (supported by both our experience and the sufficient conditions we previously mentioned) is strong global dependence. When large groups of variables are constrained in a near-deterministic fashion, rejection often becomes unlikely to succeed, and generic inference techniques based on modifying a small number of variables one at a time often converge slowly.
+  so why do people like bayesianism? not convinced by technical arguments; instead, because bayesianism produces some results
+  which seem to coincide with common sense. also, bayesianism is flexible enough to provide explications of many "subtleties and vagaries"
+  of scientific reasoning.
 
-   ...so instead, you add *more* global parameters. This seems to make the problem *harder* in a
-   traditional context, but in practice it works better. (c.f. line estimations from lec 1.)
+  but, clapback: sure, you can pick your priors "more or less ad hoc", and get whatever "particular *inferences*" you want out, but we learn nothing
+  from this line of argument.
 
+  > What we want is an explanation of *scientific argument*; what the Bayesians give us is a theory of learning, indeed a theory of *personal learning*.
 
+  A good question: why is *argumentation* useful?
+  ...other examples of aspects of the scientific method, which Bayesianism can cover more or less well, or not at all...
 
+  What about simplicity?
+  Harold Jeffreys tried to enumerate hypotheses such that simpler ones had higher prior probabilities than more complex ones. unfortunately his scheme
+  allowed one to immediately deduce that all hypotheses have probability 0... more broadly, there's no way
 
+  new theories that explain evidence from the past don't make sense in the context of ideal bayesians, who would never be surprised by a new theory...
+  so if bayesianism is supposed to explain the real behavior of scientists, it fails here.
 
 * Bayesianism and Causality, or, why I am only a half-bayesian
   http://ftp.cs.ucla.edu/pub/stat_ser/r284-reprint.pdf
@@ -105,66 +120,50 @@ http://probcomp.csail.mit.edu/reading-list/
 
   > The separation between concept definition and model verification is even more pronounced in the Bayesian framework, where purely judgmental concepts, such as the prior distribution of the mean, are perfectly acceptable, as long as they can be assessed reliably from one’s experience or knowledge.
 
+* When are probabilistic programs probably computationally tractable?
+  http://danroy.org/papers/FreerManRoy-NIPSMC-2010.pdf
+
+  Two core questions:
+
+  a. What conditions suffice for Bayesian inference by posterior simulation to be computationally efficient?
+  b. How should probabilistic programmers write their probabilistic programs so as to maximize their probable tractability?
+
+  Three notes:
+
+  1. Surprise upper-bounds the complexity of exact posterior simulation. In fact, the surprise in thedata can sometimes provide
+     a sharper characterization of the computational tractability of posterior simulation than measures based on, e.g.,
+     the dimensionality, tree-width of an underlying graphical model, etc.
+
+  2. Approximate posterior simulation is sometimes quite tractable, especially when either the surprise can be broken into
+     small steps, or the constraints (induced by the data) on the program’s random choices are sparsely overlapping.
+
+  3. Probabilistic programmers can increase the likely tractability of their programs, without resorting
+     to tempering methods, by designing them to be self-relaxing.
+
+** 1: surprise upper-bounds complexity of simulation
+   > We have two constructive results showing that exact posterior simulation via rejection is tractable when the data are not too surprising, or when the surprise can be broken down into a short enough sequence of sufficiently unsurprising steps. These results provide a conservative estimate of the difficulty of practical probabilistic programming.
+
+   Also more sharply bound things than classical "syntactic" results.
+
+   > Importantly, our results do not underestimate the anticipated complexity of problemsbelieved to be truly hard (e.g., inverting cryptosystems).
+
+   ...some analytic analysis of rejection sampling...
+
+   > Sloganized, then, this result says that concept classes that admit tight generalization bounds also admit tractable rejection samplers, and vice versa.
+
+** 2: approximate posterior simulation is sometimes quite tractable
+   e.g. MCMC
+
+** 3: probabilistic programmers can increase the likely tractability of their programs by designing them to be self-relaxing.
+   > The key idea takes inspiration from an aspect of evolution: complex structures often arise in part because there is a smooth bridge along which fitness mostly increases, running through intermediate structures. The very high dimensional nature of the space of possible structures provides the degrees of freedom that enable these smooth paths to exist. Annealing-type methods attempt to introduce this kind of structure in a post-hoc fashion, by adding variables like temperature (or byco-opting variables like various weighting parameters) and smoothly changing them in ways that facilitate mixing.
+
+   > Our approach is motivated by a different intuition: one driver of slow convergence (supported by both our experience and the sufficient conditions we previously mentioned) is strong global dependence. When large groups of variables are constrained in a near-deterministic fashion, rejection often becomes unlikely to succeed, and generic inference techniques based on modifying a small number of variables one at a time often converge slowly.
+
+   ...so instead, you add *more* global parameters. This seems to make the problem *harder* in a
+   traditional context, but in practice it works better. (c.f. line estimations from lec 1.)
 
 
-* Why I am not a Bayesian
 
-  Confirmation theories (i.e. theories of inductive logic): currently mostly focus on probability.
-  However, this hasn't generally been useful in the history of science.
-
-  > Probability is a distinctly minor note in the history of scientific argument.
-
-  So is science just a bunch of random guesses then?...
-
-  Bayesianism asserts that we have "degrees of belief", and these degrees of belief can be modeled as probabilities, and measured
-  by having people place bets and assuming that they will only take bets whose expected values are positive.
-
-  - degrees of belief: yeah sure, in some cases
-  - modeled as probabilities: hmmm
-  - ...that can be measured placing bets: lol no
-
-  bayesianism provides no link to reality. however, result: all bayesians will converge to the truth.
-  ...but, reviewed: actually only shows that *bayesians believe bayesians will converge to the truth*.
-
-  so why do people like bayesianism? not convinced by technical arguments; instead, because bayesianism produces some results
-  which seem to coincide with common sense. also, bayesianism is flexible enough to provide explications of many "subtleties and vagaries"
-  of scientific reasoning.
-
-  but, clapback: sure, you can pick your priors "more or less ad hoc", and get whatever "particular *inferences*" you want out, but we learn nothing
-  from this line of argument.
-
-  > What we want is an explanation of *scientific argument*; what the Bayesians give us is a theory of learning, indeed a theory of *personal learning*.
-
-  A good question: why is *argumentation* useful?
-  ...other examples of aspects of the scientific method, which Bayesianism can cover more or less well, or not at all...
-
-  What about simplicity?
-  Harold Jeffreys tried to enumerate hypotheses such that simpler ones had higher prior probabilities than more complex ones. unfortunately his scheme
-  allowed one to immediately deduce that all hypotheses have probability 0... more broadly, there's no way
-
-  new theories that explain evidence from the past don't make sense in the context of ideal bayesians, who would never be surprised by a new theory...
-  so if bayesianism is supposed to explain the real behavior of scientists, it fails here.
-
-
-
-* what is...
-** rejection sampling?
-   https://en.wikipedia.org/wiki/Rejection_sampling
-
-   ...this is the dumb algorithm from statmech...
-
-** markov chain monte carlo?
-   https://en.wikipedia.org/wiki/Markov_chain_Monte_Carlo
-
-   In statistics, Markov chain Monte Carlo (MCMC) methods comprise a class of algorithms for sampling from a probability distribution. By constructing a Markov chain that has the desired distribution as its equilibrium distribution, one can obtain a sample of the desired distribution by recording states from the chain. The more steps that are included, the more closely the distribution of the sample matches the actual desired distribution. Various algorithms exist for constructing chains, including the Metropolis–Hastings algorithm.
-
-   ...this is the smart algorithm from statmech...
-
-** a tempering method?
-** confirmation theory?
-   https://plato.stanford.edu/entries/confirmation/
-
-   > In contemporary philosophy, confirmation theory can be roughly described as the area where efforts have been made to take up the challenge of defining plausible models of non-deductive reasoning. Its central technical term -- confirmation -- has often been used more or less interchangeably with “evidential support”, “inductive strength”, and the like.
 
 * MCMC reading
 ** inference
@@ -211,7 +210,6 @@ http://probcomp.csail.mit.edu/reading-list/
 
   this turns out to work.
 
-
 * Gen paper
   > Probability theory provides specifications for various tasks involving generative models including inferring the values of latent variables from values of observed variables given an assumed generative model. This task, which is called posterior inference in the context of Bayesian statistics, requires conditioning the joint distribution over latent and observed variables on the event that the observed variables took certain values. The latent variables may include numerical variables (often called parameters) as well as combinatorial discrete objects (often called structure). Inferences about the latent variables may take the form of (i) samples from the conditional probability distribution on the latent variables, (ii) an analytic representation of the conditional distribution, or (iii) some summary of the conditional distribution, such as the single value with maximum probability (as in maximum a posteriori or ‘MAP’ inference).
 
@@ -221,5 +219,51 @@ http://probcomp.csail.mit.edu/reading-list/
 
   key insight: metropolis-hastings in Gen is not fitting the "best" parameters. it's generating samples from the posterior distribution on the parameters, conditioned on the data.
 
-* TODO From Scratch: Bayesian Inference, Markov Chain Monte Carlo and Metropolis Hastings, in python
+* Distribution derivations
+** Binomial
+   How many successes in $n$ independent trials, with $p$ probability per trial?
+
+   $$\prob(X=k \given X \samples B(n, p)) = {n \choose k} p^k (1-p)^{n-k}$$
+
+   Sum the probability of all cases with $k$ successes. There are ${n \choose k}$ of these cases. Each success occurs w/ probability $p$ and each failure
+   occurs with probability $1-p$.
+
+** Poisson
+   Binomial as $n \to \infty$ and $p \to 0$. For example, number of discrete events in some period of time.
+   Define $\lambda$, number of events in an interval. Subdivide interval into $n$ sections. Set $p=\frac{\lambda}{n}$. Then:
+
+   $$\prob(X=k \given X \samples \Poisson(\lambda))
+   = \lim_{n \to \infty} {n \choose k} \left(\frac{\lambda}{n}\right)^k \left(1-\frac{\lambda}{n}\right)^n \left(1-\frac{\lambda}{n}\right)^{-k}$$
+
+   which turns out to come out to $$e^{-\lambda}\frac{\lambda^k}{k!}$$
+
+   Assumptions:
+   - The average rate of events per unit time is constant.
+   - Events are independent.
+
+** Exponential
+   The time until the next event happens.
+
+   $X \samples Exp(0.25)$ means that events are happening at a rate of 0.25/timespan, similar to Poisson distribution; you need to normalize by timespan.
+
+   Event will on average take $\frac{1}{\lambda}$ to occur.
+
+   $$\prob(T=t \given T \samples \Exp(\lambda)) = \lambda e^{-\lambda t}$$ (note: a probability density)
+
+   Derivation:
+
+** Gamma
+   The wait time until the *k*-th event, instead of the first.
+
+   $p(T=t \given T \samples \mathrm{Gamma}(k, \lambda) =$ ...something involving the Gamma function (which is a useful extension of the factorial to the complex plane).
+
+
+
+* From Scratch: Bayesian Inference, Markov Chain Monte Carlo and Metropolis Hastings, in python
   https://towardsdatascience.com/from-scratch-bayesian-inference-markov-chain-monte-carlo-and-metropolis-hastings-in-python-ef21a29e25a
+
+
+* Rapidly-Exploring Random Tree
+  https://en.wikipedia.org/wiki/Rapidly-exploring_random_tree
+
+  https://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.35.1853&rep=rep1&type=pdf

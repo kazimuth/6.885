@@ -1,0 +1,108 @@
+#+TITLE: 6.885 Lecture 10: Gaussian Processes
+#+AUTHOR: james gilles
+#+EMAIL: jhgilles@mit.edu
+#+DATE: 05 march 2020
+#+OPTIONS: tex:t latex:t
+#+STARTUP: latexpreview
+
+#+LATEX_HEADER: \newcommand{\fc}[1]{f_{\mathrm{compute}}}
+#+LATEX_HEADER: \newcommand{\fe}[1]{f_{\mathrm{emu}}}
+
+* intro
+  last time: hierarchical bayes w/ explicit function models.
+
+  this time: a nonstandard intro to gaussian processes, focusing on mechanics and intuition.
+
+  then, bayesian optimization + infinitely wide neural networks
+
+  (reading for last time:
+  https://medium.com/neuralspace/how-bayesian-methods-embody-occams-razor-43f3d0253137
+  https://en.wikipedia.org/wiki/Bayesian_hierarchical_modeling
+  )
+
+* schematic
+  posit: some process that's computational but costly / based on sensor data
+  $\fc\;: ... \to \mathbb{R}$
+
+  we can collect + record some points
+
+  but it's expensive. want: a cheap surrogate
+
+  construct an emulator $\fe$: a *gaussian process memoizer*, using samples of $\fc$
+  along with a *kernel function*
+
+  viz: you get a bunch of random curves, constrained by some set of points.
+
+  (*jhg* +) other student: can you add uncertainty to the samples? *v*: they can correctly model that...
+  well, "correctly" is funny.
+  amount of noise GP expects is specified by variance between input points (and sample points?)
+  fun fact: if you don't deal with that, it gets numerically unstable. plus, people add extra jitter.
+
+  distinction between predict f_compute(x) and observe (x) = y: first implemented in terms of the second, more faithful but less flexible
+
+  doing metropolis-hastings on hyperparameters after observations restores useful uncertainty
+
+  in principle: this shows a way to integrate a GP w/ any other stochastic prediction system
+  note: can combine simulations + real-world data
+
+  we basically have random assumptions on how smooth the function is + how noisy it is. simple example of a hierarchical bayesian model.
+
+  building blocks: covariance functions. their form determines the "shape" of the function that the GP models.
+  we have primitive covariances + ways to combine them that preserve their properties.
+
+* formally
+  for any list of inputs $[x_1, ..., x_n]$:
+
+  the outputs are jointly normal:
+  $[f(x_1), ..., f(x_n)] \sim \mathrm{Multivariate-Normal}(0, K(x_i, x_j))$
+
+  we write $f \sim \mathrm{GP}(K)$ to emphasize that GP is parameterized by covariance K: $X^2 \to \mathbb{R}$
+
+  *jhg*: are we distinguishing between observations and probe points? *v*: in this formulation, no, they just become dimensions.
+  (*jhg*: but then how do we build that covariance?)
+
+  unintuitive but powerful conceptual move: rather than imposing explicit prob. model on some representation of functions. We don't do that here. Instead, we only put down a model over explicit outputs, without explicitly specifying process that generates those outputs.
+
+  (*jhg*: it's a point-based representation instead of an element-based representation. And every point is in the support domain of every other point?)
+
+  (*jhg*: why is this wrong? it's 'cause you baselessly assert the kernel, right?)
+
+  why can we build in changepoints? easy to build a function that checks if underlying inputs are in same
+  geometric regimes, or different.
+
+  can be convenient to use higher-level notation for covariance functions.
+
+* more stuff
+  in practice, people like GPs: expressive, but tractable for exact calc. up to a few thousand data points.
+
+  what's the catch?
+  - cases where noise is a mixture can't easily be modeled.
+
+  (*jhg*: inference falls out, it's the same as any other inference problem.)
+
+  (*jhg*: could you model some other function with this?)
+
+  *student*: could you build a kernel with meaningful structural parameters? *v*: that's a good low-hanging-fruit project.
+
+  *student*: can we build weird sampling structures? *v*: yes, easily.
+
+  (*jhg*: what does a cov matrix for some level of white noise look like? is it just nonzero on the diagonal?)
+
+  variance: $E(XX) - E(X)E(X)$, covariance: $E(XY) - E(X)E(Y)$
+
+  (*jhg*: what if we're not gaussian?)
+
+  *student*: what if there's outliers? *v*: there's a thing you can do... (i lost track.)
+
+  *student*: could you do ablation studies?
+
+  *jhg*: so we're just doing this 'cause gaussians are easy? *v*: yes. but don't forget: prob. prog. tries to make using arbitrary distributions easy, but not always easy or tractable.
+  conceptual model: understand how restrictive classes of models that fit in.
+  "if i have a model or inference problem, and I *can* solve it this way, great. that'll be easier later."
+
+  if you are confident that your kernel assumptions are *reasonable*, then you can have a good amount of confidence your model will behave "correctly".
+  There's also a well trodden path for building good approximations if you don't want to be exact.
+
+  (*jhg*: but if you *don't* trust your assumptions, you're just as lost as in DL.)
+
+  *v*: project idea: should we use existing physical simulators to directly build models? well, we could. but what if, instead, we built GPs to predict their output, and also trained on real data, with the error there explicitly factored into the model?

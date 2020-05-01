@@ -1,0 +1,213 @@
+#+TITLE: 6.885 final project
+#+AUTHOR: james gilles
+#+EMAIL: jhgilles@mit.edu
+#+DATE: 16 april 2020
+#+OPTIONS: tex:t latex:t
+#+STARTUP: latexpreview
+
+** TODO specify problem more on piazza for vikash
+** TODO maybe use elliptical sampling? but maybe not.
+** TODO setup SLURM node for GPU tests
+
+** TODO Makie.jl
+
+* 4/16 meeting notes (Intuitive Physics Groups)
+  want: 3-slide explanation of what you'll work on
+  1: frame problem (what it is, previous work)
+  2: what's your approach (language, model, inference, data sources)
+  3: timeline
+
+** Individuals
+   Marco:
+   Made Gen
+   Now doing 3d perception
+
+   - Jessie Rosenberg (IBM):
+     Reversible-jump collision detection
+     Use existing simple dataset
+     starting point: 2 blocks moving, reversible-jump whether they collide or not
+
+   - Aldo Pareja (G) + Sanja Simonovikj (UG) + Tyler Wilson (phil major):
+     Videos, possible / impossible scenes
+     Goal: detect anomalies
+     Adapting for their dataset
+     Possible contribution to NeurIPS
+     Pure-neural network baseline: takes image, outputs object properties
+     predict attributes in following timeframes
+
+     also, literature review / bibliography on that topic
+
+   - Me:
+     Taichi + Gen
+     Need something to point it at (probabilistic fluid simulation?)
+
+** Jessie: Reversible-jump collision detection
+   Wrote up doc already
+
+   Goal: start as simple as possible
+   - 2d
+   - no perception
+   - observation of position + velocity, with / without noise
+
+   object: coordinate, velocity, bounding box, noise
+
+   pymunk: python physics / visualization library
+
+   algorithm / model:
+   set of labeled nodes N (fixed)
+   graph G: set of pairwise interactions
+   model creation / deletion of edges as the move
+   graph / nodes evolve with time
+
+   dynamics are less clear
+
+   goal: model is realistic to reproduce momentum-preserving collisions
+
+   output of model is a whole video
+
+   basically, have highly stochastic collisions
+
+   overall idea: approximate more expensive physical simulations stochastically
+
+** Aldo (+...)
+   Neural network: predict objects in a scene
+
+** Mine
+   marco:
+   - how difficult is the binding?
+
+   me:
+   - i think i've got it? main problem is keeping stuff on GPU.
+
+   NN parameters: kept on GPU; possible there are similar things we could do here.
+   parameters "owned" by tensorflow, might be able to do something similar.
+
+   application brainstorm:
+   wanna live in inner loop.
+   want iterative optimization / sampling,
+   OR stuff in parallel.
+
+   - online parameter estimation
+     paper:
+     https://arxiv.org/abs/1808.03246
+     using MIT pushing dataset -- a robot arm pushing stuff around
+     how do we correct for stuff below phyical simulation detail level?
+
+     problem: learns really slowly
+     but: if you wrapped a gaussian process around simulator, you could potentially use GP code to do online learning of
+     and you have a
+
+     get a clustering model which gives mixture of GP residuals around physics engine
+
+     good scope: just show that you can take taichi w/ simple physics model, wrap it in mixture of gaussians, do scenario-based inference about which situation you're in; do particle filtering; predict answer to taichi simulations
+
+     scaled offsets to output at time steps
+
+     simplest version: HMC to learn magnitude of latent perturbation; combined w/ physics output
+
+   - different version:
+     try to infer hidden force field of billiards; use inference to try to recover that field
+     potential solution: HMC over a vector field
+     you see balls bouncing around
+     goal: very rapidly infer what the forces are, *basically* by gradient descent; but you're formalizing it -- measure reduction in uncertainty from a small number of samples
+     input: isotropic spatial covariance function, with some smoothness length scale; can infer the length scale too!
+     space: outputs + GP length scale
+
+     other process: iron filings
+
+     is GP too dense?
+     vk: use kd-tree to do variable-resolution acceleration for GPs
+
+     suggestion: skip the tree part, do bayesian inference on a force field modeled by a GP
+
+   - other idea: chamfer distance
+     chamfer distances between point clouds: key primitive for 3d geometry
+     very sparse, could be a good fit for taichi
+
+     is it differentiable?
+
+   recap:
+   2d coordinate frame
+   GP creating a grid of force
+   + objects
+
+   then, run simulation for some number of time s
+
+   know initial conditions to reduce dimensionality
+   observe: trajectories w/ noise
+
+   Gen-only version:
+   offline
+   small grid, few particles
+
+   exercise differentiability of physical simulation
+
+   vikash: Annealed importance sampling that anneals in the force field
+   AIS with an HMC kernel to update field value estimates at
+
+   macroct:
+   Gen's HMC is not highly-developed.
+   has tunable parameters, hard to tune (someone working on that)
+   need to make sure stepping function is differentiable by reversediff
+   return an array, take arrays
+   if HMC doesn't work, try elliptical slice sampling
+   also, could just use MAP/optimize
+
+   extension to both: online w/ rejuvenation moves
+
+   TODO: ask about deadlines on Piazza
+   TODO: read about kd-tree version of GPs
+   TODO: email marcoct@mit.edu about ideas
+   TODO: slides by
+
+   jess chat:
+   bad models seem good at explanation, but not prediction. More sophisticated / tuned models predict better.
+
+* Taichi notes
+  Example with sparse differentiable particle collision: https://github.com/yuanming-hu/difftaichi/blob/master/examples/liquid.py
+
+* Flow field prior notes
+  https://repository.tudelft.nl/islandora/object/uuid%3Ad69a58c4-91ea-4590-9153-c6fa35f374e5
+  Artificial Neural Networks for Flow Field Inference
+  Artificial Neural Networks for Flow Field Inference: A machine learning approach
+  Terleth, Niels (TU Delft Aerospace Engineering)
+* Marco chat
+** a
+Hey Marco,
+
+I was wondering if you had more thoughts about that chamfer distance idea we chatted briefly about in class last week. I've been doing a little reading but I can't find much about chamfer distance computation on wikipedia, are there any good sources to look up?
+
+Thanks,
+James Gilles
+Graduate Student, MIT CSAIL, Programming Systems Group
+jhgilles@mit.edu
+
+** b
+Hi James,
+
+Yes, of course.
+
+The idea is to have a measure of 'difference' between two sets of points in a way that is robust to major differences in the two sets. This idea has historically been often applied in 2D (for finding similarity between two images, typically after applying some edge filter as in Shape Context and Chamfer Matching in Cluttered Scenes and Visual Hand Tracking Using Nonparametric Belief Propagation, section IIIa) but it can also be used for comparing two 3D point clouds (as in A Point Set Generation Network for 3D Object Reconstruction from a Single Image page 4 and e.g. https://github.com/UM-ARM-Lab/Chamfer-Distance-API). I believe this is the first (?) use of it.
+
+Visual Hand Tracking Using Nonparametric Belief Propagation: http://static.cs.brown.edu/people/sudderth/papers/gmbv04.pdf
+A Point Set Generation Network for 3D Object Reconstruction from a Single Image: https://arxiv.org/pdf/1612.00603.pdf
+
+There are different variants of Chamfer distance. Usually a symmetric form is used. For example, from A Point Set Generation Network for 3D Object Reconstruction from a Single Image page 4:
+[[./chamfer.png]]
+
+I think it would be a good fit for Taichi because (i) it can be implemented efficiently using KD-trees because it is based on local interactions and it is trivially parallelizable, and (ii) it is useful if it is differentiable.
+
+We are interested in using it as likelihood functions for fitting 3D models to point clouds. This is part of a broader approach to 3D computer vision that first (i) extracts depth information (i.e. point clouds) using either sensors and/or neural networks, and then (ii) uses generative models of points clouds to infer object poses relative to camera, and object shape parameters, articulation (i.e. joint angles), etc. The mesh models are for object classes, and can include articulation and smoothly varying shape parameters that determine the mesh (e.g. http://files.is.tue.mpg.de/black/papers/SMPL2015.pdf), etc.  The key idea is that working with generative models of RGB data directly is very difficult, because it is impossible to model all the details, and that by pre-processing into the 3D geometry domain (point clouds) we can actually use generative models (and inference, optimization, etc.) effectively.
+
+A good minimal test case for an implementation of chamfer distance would be to fine-tune the 6-degree-of-freedom pose of a model of e.g. this mug, to a synthetic point cloud of a mug. A follow-up would be using MCMC to explore the posterior given a point cloud where the points on the back-facing part of the object are occluded.
+
+There is also a related likelihood model that I have experimented with recently, and that I think can be used to motivate the Chamfer distance as an approximation of a generative model likelihood. In probabilistic-chamfer.jl (attached below), I wrote a Gen probability distribution that takes a point cloud (X), and samples another point cloud (Y), where each point in Y is either (i) an outlier, sampled uniformly from the space, or (ii) produced by first picking a random point in X and adding some Gaussian noise to it. When you collapse out the discrete random variable for each observed point in Y that determines whether it is an outlier or not and what point in X it corresponds to, you get something very similar to the Chamfer distance as defined above, except instead a minimum over the distances to all other points in X, you get a log(weighted sum), which ends up being a sort of soft-min. Of course, this soft version does require computing all pairwise distances, but you could imagine levels of approximation interpolating between the full version, and the min-based Chamfer version defined above.
+
+Best,
+
+Marco
+
+* Slides
+
+
+* Chamfer distance

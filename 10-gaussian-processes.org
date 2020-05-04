@@ -106,3 +106,12 @@
   (*jhg*: but if you *don't* trust your assumptions, you're just as lost as in DL.)
 
   *v*: project idea: should we use existing physical simulators to directly build models? well, we could. but what if, instead, we built GPs to predict their output, and also trained on real data, with the error there explicitly factored into the model?
+  doing metropolis-hastings on hyperparameters after observations restores useful uncertainty
+
+  in principle: this shows a way to integrate a GP w/ any other stochastic prediction system
+  note: can combine simulations + real-world data
+
+  we basically have random assumptions on how smooth the function is + how noisy it is. simple example of a hierarchical bayesian model.
+
+  building blocks: covariance functions. their form determines the "shape" of the function that the GP models.
+  we have primitive covariances + ways to combine them that preserve their properties.

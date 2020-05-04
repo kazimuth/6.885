@@ -5,11 +5,27 @@
 #+OPTIONS: tex:t latex:t
 #+STARTUP: latexpreview
 
+** TODO plotting: animated + streamplot
+** TODO gp sampling helpers for 2d
+
 ** TODO specify problem more on piazza for vikash
 ** TODO maybe use elliptical sampling? but maybe not.
 ** TODO setup SLURM node for GPU tests
 
 ** TODO Makie.jl
+** TODO model setup:
+   sample grid; x and y velocities are independent
+   affects variables w/o randomness
+   ...but variable measurements have randomness
+
+** TODO how do we sample from GP?
+   https://math.stackexchange.com/questions/1218718/how-do-we-sample-from-a-gaussian-process
+
+   https://arxiv.org/pdf/2002.09309.pdf
+
+* setup
+  install julia from source
+
 
 * 4/16 meeting notes (Intuitive Physics Groups)
   want: 3-slide explanation of what you'll work on

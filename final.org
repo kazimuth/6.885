@@ -8,7 +8,10 @@
 ** TODO plotting: animated + streamplot
 ** TODO gp sampling helpers for 2d
 
+** TODO
 ** TODO specify problem more on piazza for vikash
+** TODO HMC
+   https://www.gen.dev/dev/ref/modeling/#Writing-differentiable-code-1
 ** TODO maybe use elliptical sampling? but maybe not.
 ** TODO setup SLURM node for GPU tests
 

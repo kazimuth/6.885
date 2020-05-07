@@ -1476,49 +1476,6 @@ end;
 ```
 
 
-<iframe src=http://127.0.0.1:8090/5eba4247-8fa4-4b07-a03b-423f4614a4d8/ frameBorder=0 width=100% height=600></iframe>
-
-
-
-    InterruptException:
-
-
-
-    Stacktrace:
-
-     [1] eval_cov(::Times, ::Float64, ::Float64) at ./In[34]:111
-
-     [2] eval_cov(::Plus, ::Float64, ::Float64) at ./In[34]:90 (repeats 2 times)
-
-     [3] compute_cov_matrix(::Plus, ::Float64, ::Array{Float64,1}) at ./In[35]:7
-
-     [4] compute_predictive(::Plus, ::Float64, ::Array{Float64,1}, ::Array{Float64,1}, ::Array{Float64,1}) at ./In[35]:32
-
-     [5] predict_ys(::Plus, ::Float64, ::Array{Float64,1}, ::Array{Float64,1}, ::Array{Float64,1}) at ./In[35]:52
-
-     [6] (::var"#33#34"{Gen.DynamicDSLTrace{DynamicDSLFunction{Any}},Array{Float64,1},Array{Float64,1}})(::Int64) at ./none:0
-
-     [7] iterate at ./generator.jl:47 [inlined]
-
-     [8] collect_to! at ./array.jl:667 [inlined]
-
-     [9] collect_to_with_first!(::Array{Array{Float64,1},1}, ::Array{Float64,1}, ::Base.Generator{UnitRange{Int64},var"#33#34"{Gen.DynamicDSLTrace{DynamicDSLFunction{Any}},Array{Float64,1},Array{Float64,1}}}, ::Int64) at ./array.jl:646
-
-     [10] collect(::Base.Generator{UnitRange{Int64},var"#33#34"{Gen.DynamicDSLTrace{DynamicDSLFunction{Any}},Array{Float64,1},Array{Float64,1}}}) at ./array.jl:627
-
-     [11] serialize_trace(::Gen.DynamicDSLTrace{DynamicDSLFunction{Any}}, ::Int64, ::Int64) at ./In[40]:4
-
-     [12] run_mcmc(::Gen.DynamicDSLTrace{DynamicDSLFunction{Any}}, ::Int64, ::Viz) at ./In[53]:6
-
-     [13] (::var"#35#36")() at ./In[54]:6
-
-     [14] displayInNotebook(::var"#35#36", ::Viz, ::Int64) at /root/.julia/packages/GenViz/WALyT/src/GenViz.jl:161
-
-     [15] displayInNotebook(::Function, ::Viz) at /root/.julia/packages/GenViz/WALyT/src/GenViz.jl:160
-
-     [16] top-level scope at In[54]:4
-
-
 
 ```julia
 println("Score was: ", get_score(t))

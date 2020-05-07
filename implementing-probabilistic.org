@@ -1,0 +1,122 @@
+#+TITLE: Notes on: Implementing a Lightweight Probabilistic Programming Language by Alex Lew (6.885)
+#+AUTHOR: james gilles
+#+EMAIL: jhgilles@mit.edu
+#+DATE: 07 may 2020
+#+OPTIONS: tex:t latex:t
+#+STARTUP: latexpreview
+
+* Intro
+  Talk from: Alex Lew, PhD under Vikash
+
+  We've used gen and are used to using it, have a vague sense what's going on under the hood.
+  What's happening when you call importance sampling / metropolis-hastings / ...
+
+  A combination of slides + python live coding
+
+  (see ./implementing-probabilistic/: https://gist.github.com/alex-lew/6a3859d225ee959e7e9ac41fbfff5b6e)
+
+* Design space
+  Need to choose: modeling language + inference machinery
+
+** Restrictive modeling language
+   Point we haven't been focusing on: Restricted modeling languages w/ specialized inference
+   Designed to work w/ exactly set of models expressible in their language
+   e.g. Stan, Libby
+   Libby: state-space models, that you'd use a particle filter for
+   Stan: differentiable joint density function
+
+   Benefit: neat inference algorithms
+   Downside: only applicable to certain models
+
+** "Universal" Modeling languages
+   e.g. Gen, this talk
+
+   note: limitations on distributions expressible by computable function! [jhg: ...but these can express anything in that class?]
+
+   could care only about outputs, or about whole trace
+
+   benefits: flexibility
+   problems: turing completeness >:/
+
+   this flexibility lets us implement e.g. agent path planning
+   ...but we can't know various interesting properties of a program w/o running it.
+
+   this limits strategies available to us.
+
+   one strategy:
+   run program, but: don't use standard semantics
+   e.g. just sampling, vs collecting a trace in Gen
+
+   today only showing one non-standard
+
+* Demo 1: non-standard interpretation
+  note: link to code will be posted after on Piazza
+
+  python program w/ ~inject_variables~ to modify semantics
+
+  #+BEGIN_SRC python :noeval
+  def f():
+      return a
+
+  f_with_a_as_3: Callable = inject_variables({'a': 3}, f)
+  f_with_a_as_3() # -> 3
+  #+END_SRC
+
+  so we've augmented f's semantics.
+
+  now, write prob. model. have sampling code for distributions.
+  distributions define ~sample~ and ~score~, which give a sample + compute logpdf of the sample.
+
+  we have a sample method, but no function. but our model uses ~sample(x)~.
+
+  we use our ~inject_variables~ to "hijack" model's behavior.
+
+  #+BEGIN_SRC python :noeval
+  def standard(model: Callable):
+     def standard_sample(d):
+         if isinstance(d, Distribution):
+            return d.sample()
+         else:
+            ...
+     standard_model = inject_variables({'sample': standard_sample}, model)
+     return standard_model()
+  #+END_SRC
+
+  but what if we wanted to trace f?
+
+  in Gen, we can call ~trace(f)~.
+
+  now, define:
+
+  #+BEGIN_SRC python :noeval
+  def traced(model):
+      # can't expect model to return trace! need to add side channel.
+      trace = []
+      # also want to evaluate logpdf of whole distribution.
+      joint_logpdf = 0.0
+      def tracing_sample(d):
+          nonlocal joint_logpdf, trace
+          v = d.sample()
+          joint_logpdf += dist.score(value) # log space: multiplying probabilities
+          trace.append(v)
+          return v
+
+      traced_model = inject_variables({'sample': tracing_sample}, model)
+      retval = traced_model()
+      return retval, trace, joint_logpdf
+  #+END_SRC
+
+  note: this trace is simpler than gen, but same basic idea.
+
+  there are languages where this is harder to implement; depends on what metaprogramming is available.
+
+  there are other kinds of interpretation: e.g. enumerate all possible values of discrete random variables.
+
+  #+BEGIN_SRC python :noeval
+  #+END_SRC
+
+  #+BEGIN_SRC python :noeval
+  #+END_SRC
+
+  #+BEGIN_SRC python :noeval
+  #+END_SRC

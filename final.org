@@ -6,22 +6,26 @@
 #+STARTUP: latexpreview
 
 ** TODO plotting: animated + streamplot
-** TODO gp sampling helpers for 2d
-
-** TODO
-** TODO specify problem more on piazza for vikash
+** DONE gp sampling helpers for 2d
+   CLOSED: [2020-05-04 Mon 19:13]
+** TODO switch from wrap-around to clamping at the edge.
+** DONE specify problem more on piazza for vikash
+   CLOSED: [2020-05-04 Mon 19:13]
 ** TODO HMC
    https://www.gen.dev/dev/ref/modeling/#Writing-differentiable-code-1
+** TODO rewrite simulation vectorized to speed up HMC?
 ** TODO maybe use elliptical sampling? but maybe not.
 ** TODO setup SLURM node for GPU tests
 
-** TODO Makie.jl
+** DONE Makie.jl
+   CLOSED: [2020-05-04 Mon 19:13]
 ** TODO model setup:
    sample grid; x and y velocities are independent
    affects variables w/o randomness
    ...but variable measurements have randomness
 
-** TODO how do we sample from GP?
+** DONE how do we sample from GP?
+   CLOSED: [2020-05-04 Mon 19:13]
    https://math.stackexchange.com/questions/1218718/how-do-we-sample-from-a-gaussian-process
 
    https://arxiv.org/pdf/2002.09309.pdf

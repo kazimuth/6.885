@@ -113,6 +113,7 @@ end
 
 ##
 
+"""
 trace = Gen.simulate(force_model, (10, 1.0, 0.1, 20, 48, 1.0/24.0, 0.9))
 
 r = trace_to_record(trace)
@@ -144,6 +145,7 @@ end
 ##
 
 """
+"""
 trace = Gen.simulate(force_model, (10, 1.0, 0.1, 20, 48, 1.0/24.0, 0.9))
 r = trace_to_record(trace)
 
@@ -166,9 +168,6 @@ for i in 1:50
 end
 """
 nothing
-##
-    #draw_mass_paths!(scene, r, mass_scale=0.01)
-#draw_mass_paths!(scene, trace.retval, mass_scale=0.01)
 
 
 ##
@@ -190,55 +189,89 @@ end
 
 function do_inference(args :: Tuple, snapshots :: Array{Mass, 2}; computation = 100, cb=nothing)
     cmap = make_choicemap(snapshots)
-    trace, p = Gen.generate(force_model, args, cmap)
+    trace, _ = Gen.generate(force_model, args, cmap)
 
-    probs = [p]
+    weights = Float64[]
 
     for i in 1:computation
-        (trace, _) = metropolis_hastings(trace, select(:noise))
-        (trace, _) = metropolis_hastings(trace, select(:length_scale))
-        (trace, p) = metropolis_hastings(trace, select(:force_xs, :force_ys))
-        if cb != nothing
+        (trace, _) = metropolis_hastings(trace, select(:noise), check=true)
+        (trace, _) = metropolis_hastings(trace, select(:length_scale), check=true)
+        (trace, _) = metropolis_hastings(trace, select(:force_xs), check=true)
+        (trace, w) = metropolis_hastings(trace, select(:force_ys), check=true)
+        if cb != nothing && i % 1 == 0
             cb(trace)
         end
-        push!(probs, p)
+        push!(weights, w)
     end
 
-    trace, probs
+    trace, weights
 end
+
+##
+
+real_trace = Gen.simulate(force_model, (10, 1.0, 0.1, 20, 48, 1.0/24.0, 0.9))
+@time trace, probs = do_inference((10, 1.0, 0.1, 20, 48, 1.0/24.0, 0.9), real_trace.retval.snapshots, computation=10)
+
 
 
 ##
 
-trace = Gen.simulate(force_model, (10, 1.0, 0.1, 20, 48, 1.0/24.0, 0.9))
-scene = Scene(resolution=(1200, 1200), show_axis=false, show_grid=false)
-draw_grid!(scene, trace.retval.force, arrowcolor=:lightgray)
-#draw_grid!(scene, r.force, arrowcolor=:blue)
+real_trace[:noise], trace[:noise]
+
+
+##
+
+plot(probs)
+
+##
+
+probs
+
+##
+
+args = (10, 1.0, 0.1, 3, 24, 1.0/24.0, 0.9)
+real_trace = Gen.simulate(force_model, args)
+scene = Scene(resolution=(1200, 1200), show_axis=false, show_grid=false, limits=AbstractPlotting.Rect(0.0, 0.0, 1.0, 1.0))
+
+draw_grid!(scene, real_trace.retval.force, arrowcolor=:lightgray)
+draw_grid!(scene, real_trace.retval.force, arrowcolor=:lightblue)
 t = Makie.Observable(1)
-#animate_record!(scene, trace.retval, t, mass_scale=0.02)
+animate_record!(scene, real_trace.retval, t, mass_scale=0.02)
 function update_t()
-    current = floor(Int64, Base.time() * 24 % args[5])
+    current = floor(Int64, Base.time() * 24 % args[5]) + 1
     if current != t[]
         t[] = current
     end
 end
-#draw_mass_paths!(scene, trace.retval, mass_scale=0.01)
 
 display(scene)
 
 #plot(probs)
 
 ##
-while true
+
+trace = Gen.simulate(force_model, args)
+@time trace, probs = do_inference(args, trace.retval.snapshots, computation=10000, cb=function(trace)
+    r = trace_to_record(trace)
+
+    directions = []
+    for I in CartesianIndices(r.force.values)
+        push!(directions, r.force.values[I] / 24)
+    end
+
+    scene[2][:directions] = directions
+
     update_t()
     sleep(0.001)
-end
+end)
+
+
 ##
 
-
-
-##
+lines
 
 ##
 trace = Gen.simulate(force_model, (10, 1.0, 0.1, 20, 48, 1.0/24.0, 0.9))
 @time trace, probs = do_inference((10, 1.0, 0.1, 20, 48, 1.0/24.0, 0.9), trace.retval.snapshots, computation=100)
+
+##

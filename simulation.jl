@@ -66,10 +66,17 @@ end
     mapped_x = map_range(x, grid.xrange[1], grid.width, 1.0, Float64(sx))
     mapped_y = map_range(y, grid.yrange[1], grid.height, 1.0, Float64(sy))
 
+    mapped_x, _ = clip(mapped_x, (1.0, Float64(sx+1)))
+    mapped_y, _ = clip(mapped_y, (1.0, Float64(sy+1)))
+
     i = floor(Int32, mapped_x)
     j = floor(Int32, mapped_y)
 
-    CartesianIndex((i, j))
+    I = CartesianIndex((i, j))
+    @assert I[1] >= 1 && I[1] <= size(grid.values, 1) &&
+        I[2] >= 1 && I[2] <= size(grid.values, 2) "$x,$y ->\n   $mapped_x,$mapped_y ->\n   $i,$j"
+
+    I
 end
 @inline function sample_grid(grid :: Grid, x :: Float64, y :: Float64)
     grid.values[real_to_index(grid, x, y)]
@@ -160,15 +167,21 @@ Base.zero(Mass) = Mass(0.0, Vec2d(0.0), Vec2d(0.0))
 
 function step_mass(force :: Grid, mass :: Mass; dt :: Float64 = 1 / 24, friction :: Float64 = 0.9) :: Mass
     I = real_to_index(force, mass.pos[1], mass.pos[2])
+
+    @assert I[1] >= 1 && I[1] <= size(force.values, 1) &&
+        I[2] >= 1 && I[2] <= size(force.values, 2) "$(mass.pos) -> $I"
     F = force.values[I]
 
     vel = mass.vel + F * (dt / mass.mass)
+    vel *= friction
     pos_ = mass.pos + vel * dt
 
     vx, vy = vel
 
     px, xflipped = clip(pos_[1], force.xrange)
     py, yflipped = clip(pos_[2], force.yrange)
+    @assert !clip(px, force.xrange)[2]
+    @assert !clip(py, force.yrange)[2]
 
     if xflipped
         vx *= -1
@@ -187,10 +200,11 @@ dt = 1/24
 
 mp = step_mass(g, m, dt=dt)
 
-@test isapprox(mp.vel[1], 1 * dt)
-@test isapprox(mp.vel[2], -2 * dt)
-@test isapprox(mp.pos[1], (1 * dt) * dt)
-@test isapprox(mp.pos[2], (-2 * dt) * dt)
+
+@test isapprox(mp.vel[1], 1 * dt * .9)
+@test isapprox(mp.vel[2], -2 * dt * .9)
+@test isapprox(mp.pos[1], (1 * dt) * dt * .9)
+@test isapprox(mp.pos[2], (-2 * dt) * dt * .9)
 
 struct SimulationRecord
     dt :: Float64
@@ -250,7 +264,7 @@ function draw_mass_paths!(scene, record; scheme=ColorSchemes.rainbow, mass_scale
     colors = map(i -> get(scheme, (i-1)/n_masses), 1:n_masses)
 
     for i in 1:n_masses
-        points = [record.snapshots[i, j].pos for j in 1:n_times]
+        points = [record.snapshots[i, t].pos for t in 1:n_times]
         lines!(scene, points, color=colors[i], linewidth=2.0)
     end
 

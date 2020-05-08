@@ -108,15 +108,114 @@
 
   note: this trace is simpler than gen, but same basic idea.
 
+  note: each choice in the trace selects a smaller subset of the probability space, which is why that logpdf thing works.
+
   there are languages where this is harder to implement; depends on what metaprogramming is available.
 
   there are other kinds of interpretation: e.g. enumerate all possible values of discrete random variables.
 
-  #+BEGIN_SRC python :noeval
-  #+END_SRC
+  that would require forking, which you can't implement this way. you'd want to convert to CPS instead, then use that.
 
-  #+BEGIN_SRC python :noeval
-  #+END_SRC
+* Example: importance sampling
+** Review: what is importance sampling?
+  want to sample p(x | y), but don't know how to directly
+  instead, sample q(x) and weight by w(x) = p(x, y)/q(x)
 
-  #+BEGIN_SRC python :noeval
-  #+END_SRC
+  use these weighted samples as a posterior approximation. in expectation, this is the same as p(x | y) (approximation; only exact as n -> infinity)
+
+  importance resampling is similar
+
+** Implementation strategy: interventional distribution
+   for general program, how to choose proposal distribution $q$?
+
+   how do we invent a q that works whatever the program is?
+   it has to have broad support (e.g. have some chance of producing anything in input distribution), otherwise algorithm is incorrect.
+
+   Gen's approach: *intervention distribution*
+
+   ... missed a bit ...
+
+   problem: can define observations that don't make sense together.
+
+   one approach: rejection sampling on the shape of the trace
+   but... we don't know how to evaluate some density in general.
+   "trace t has all observations" isn't a computable probability
+   so we can't do that.
+   there was a paper about this last year, but you need an expensive estimation process...
+
+   What we do in Gen: define observation traces that don't always appear to be invalid.
+   This doesn't restrict models you can write, but does restrict questions you can ask about them.
+
+   how do we compute weight w(t)? = p(t) / q(t); p(t) is prob. of trace, computed by prob. chain rule.
+   for q(t), same thing, but only looking at variables that haven't been observed.
+   ...something something, cancels out...
+
+   impl strategy:
+   start with weight=1, modify by pdf when it's an observed variable (?? or other way around)
+
+   how do we include obs. in model?
+   in some languages, replace sample calls w/ observations
+   kinda messy, but means you don't need to name random variables.
+   having addresses is actually useful for other stuff though, so let's just do that.
+
+   Gen approach: augment each sample w/ unique name
+
+   ...
+
+   note: can only hook observations sampled from distributions.
+   can't use an exactly() distribution, a dirac delta, because it will give probability 0 to most samples, and be really slow to converge in practice.
+   in theory, this reduces to a time-limited approximation of the previous algorithm... somehow.
+   this also is what missing addresses are, in the previous explanation.
+   this adds a multiplier for p, but we only need to know p up to a normalization constant anyway.
+
+   note: webppl can do retval marginalization for things where latent variables are all discrete. (talk about that offline... for continuous variables, you'd need rejection sampling.)
+   e.g. score(-3) "observe a random variable whose prob. dens. would be exp(-3)"; kinda a hack. can recover that in gen from sampling from exponential(exp(3)).
+
+   jhg: do you need a total ordering on observations?
+   in previous model, it's fine if you make observations in different orders!
+   issue for importance sampling: need a thread-safe data structure
+   but e.g. sequential monte carlo has requirements that affect all particles in the trace.
+   in general, state becomes an issue.
+
+   (jhg: ...but does the math still work?)
+
+
+** Other strategies
+   - rao-blackwellization: make undefined samples symbols, and let them propagate through the program. when symbols used as args to distributions, marginalize; then note that symbol has had something observed about it. then you can sample things exactly at the "last possible moment", using heuristics to choose when that is, trying to use all information up to that point.
+     ...means you
+
+
+
+* Problems
+** Extensibility?
+   What if we want more inference algorithms / model-specific inference algorithms?
+   For e.g. anglican, you need to know how to mess with the code to inject stuff, ...
+
+   These algorithms don't really look like the code in the textbook.
+
+** Efficiency?
+   - System efficiency (how fast does the machine code run?)
+   - Algorithmic efficiency (how many iterations does the algorithm take to converge?)
+
+   e.g. lots of opportunities for incremental computation.
+
+* Gen's architecture
+  instead of: user modeling code interpreted by whole-hog inference algorithm
+
+  you have a *generative function interface*: generate, update, choice-gradients: pre-packaged nonstandard interpretations of input code.
+  about 8 of these little behaviors that gen builds automatically for nonstandard interpretations.
+  ~@gen~ is interpreted, ~@gen (static)~ is compiled: turns your code into a graph and optimizes.
+  functions use this interface in functions they call to implement their own interfaces. (jhg: very similar to automatic differentiation)
+
+  "kind of like a foreign function interface" (jhg: !!!)
+
+  can also specify custom inference algorithms, etc for your components, which other components using yours get for free.
+
+  this is nice: an interface that packages both efficiency and extensibility.
+
+  gen's inference library now looks a lot like textbook code, because it goes through these interfaces.
+
+  note: you can cross language boundaries when implementing these.
+
+  note: you can also implement inference as a generative function!! takes some wrangling to prevent baseless recursion but it's doable.
+  this is just mathematically interesting. "What is the marginal density of importance sampling returning this trace?"

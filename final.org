@@ -30,6 +30,7 @@
 
    https://arxiv.org/pdf/2002.09309.pdf
 
+** TODO check if observing velocities helps
 * setup
   install julia from source
 

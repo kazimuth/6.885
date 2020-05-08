@@ -7,38 +7,37 @@ include("simulation.jl")
 include("gp.jl")
 
 ##
+#
+#points = reshape(map_grid(identity, Point2d, (0.0, 1.0), (0.0, 1.0), 5).values, :)
+#trace = Gen.simulate(grid_model, (points, 0.5, 0.1))
+#scatter(points, color=trace.retval)
 
-points = reshape(map_grid(identity, Point2d, (0.0, 1.0), (0.0, 1.0), 5).values, :)
-
-trace = Gen.simulate(grid_model, (points, 0.5, 0.1))
-
-scatter(points, color=[trace.retval])
-
-##
 
 @gen function force_model(res :: Int64,
                           width :: Float64,
-                          velocity_scale :: Float64,
+                          force_scale :: Float64,
                           n :: Int64,
                           timesteps :: Int64,
-                          dt :: Float64)
+                          dt :: Float64,
+                          friction :: Float64)
 
     ## Build grid
     # Sample a length scale
-    length_scale ~ gamma_bounded_below(1, 1, 0.01)
+    length_scale ~ gamma_bounded_below(1, width/10, width * 0.01)
     # Sample a global noise level
-    noise ~ gamma_bounded_below(1, 1, 0.01)
+    noise ~ gamma_bounded_below(1, force_scale, 0.01)
     # Make an empty grid
-    forces = Grid(zeros(Point2d, res, res), (0.0, width), (0.0, width))
+    forces = Grid(zeros(Vec2d, res, res), (0.0, width), (0.0, width))
     # The indices of grid cells and their centroids
     Is = CartesianIndices(forces.values)
-    centers = [index_to_center(forces, I[1], I[2]) for I in Is]
+    centers = [index_to_center(forces, I[1], I[2]) for I in Is] :: Array{Point2d, 2}
+
     # Sample forces
-    force_xs ~ grid_model(centers, length_scale, noise)
-    force_ys ~ grid_model(centers, length_scale, noise)
+    (force_xs ~ grid_model(centers, length_scale, noise)) :: Array{Float64, 2}
+    (force_ys ~ grid_model(centers, length_scale, noise)) :: Array{Float64, 2}
     # fill in grid
-    for (I, fx, fy) in zip(Is, force_xs, force_ys)
-        force.values[I] = Vec2d(fx, fy)
+    for I in Is
+        forces.values[I] = Vec2d(force_xs[I], force_ys[I])
     end
 
     ## Noise in velocity / position observations
@@ -55,31 +54,191 @@ scatter(points, color=[trace.retval])
                 {(:py, i, 1)} ~ uniform(0.0, width)
             ),
             # velocity
-            Vec2d(
-                {(:vx, i, 1)} ~ normal(0.0, width / 10.0),
-                {(:vx, i, 1)} ~ normal(0.0, width / 10.0)
-            )
+            Vec2d(0.0, 0.0)
         )
         for i in 1:n
     ]
 
     ## Run simulation
-    trace = simulate_deterministic(force, masses, dt, timesteps)
+    record = simulate_deterministic(forces, masses, dt=dt, timesteps=timesteps, friction=friction)
 
-    ## Compute observations
-    for j in 2:timesteps
+    ## Compute observations (noisy)
+    for step in 2:timesteps
         for i in 1:n
-            {(:px, i, j)} ~ normal(snapshots[i, n].pos[1], noise_factor)
-            {(:py, i, j)} ~ normal(snapshots[i, n].pos[2], noise_factor)
-
-            {(:vx, i, j)} ~ normal(snapshots[i, n].vel[1], noise_factor)
-            {(:vy, i, j)} ~ normal(snapshots[i, n].vel[2], noise_factor)
+            {(:px, i, step)} ~ normal(record.snapshots[i, step].pos[1], noise_factor)
+            {(:py, i, step)} ~ normal(record.snapshots[i, step].pos[2], noise_factor)
+            {(:vx, i, step)} ~ normal(record.snapshots[i, step].vel[1], noise_factor)
+            {(:vy, i, step)} ~ normal(record.snapshots[i, step].vel[2], noise_factor)
         end
     end
 
-    nothing
+    ## Return record (not noisy!)
+    record
+end
+
+
+"""I could probably have named these data structures better..."""
+function trace_to_record(trace :: Gen.DynamicDSLTrace) :: SimulationRecord
+    res = trace.args[1]
+    width = trace.args[2]
+    n = trace.args[4]
+    timesteps = trace.args[5]
+    dt = trace.args[6]
+
+    force_xs = trace[:force_xs] :: Array{Float64, 2}
+    force_ys = trace[:force_ys] :: Array{Float64, 2}
+
+    forces = Grid(zeros(Vec2d, res, res), (0.0, width), (0.0, width))
+    for i in 1:res
+        for j in 1:res
+            forces.values[i, j] = Vec2d(force_xs[i, j], force_ys[i, j])
+        end
+    end
+    snapshots = zeros(Mass, n, timesteps)
+    for i in 1:n
+        for step in 1:timesteps
+            snapshots[i, step] = Mass(
+                1.0,
+                Point2d(
+                    trace[(:px, i, step)],
+                    trace[(:py, i, step)]
+                ),
+                Vec2d(0.0, 0.0)
+            )
+        end
+    end
+
+    SimulationRecord(dt, forces, snapshots)
 end
 
 ##
 
-trace = Gen.simulate(force_model, (5, 1.0, 0.1, 3, 48, 1.0/24.0))
+trace = Gen.simulate(force_model, (10, 1.0, 0.1, 20, 48, 1.0/24.0, 0.9))
+
+r = trace_to_record(trace)
+
+
+##
+
+scene = Scene(resolution=(1200, 1200), show_axis=false, show_grid=false)
+
+draw_grid!(scene, r.force)
+#draw_mass_paths!(scene, r, mass_scale=0.01)
+draw_mass_paths!(scene, trace.retval, mass_scale=0.01)
+
+display(scene)
+
+##
+
+scene = Scene(resolution=(1600, 1600), show_axis=false, show_grid=false)
+
+t = Makie.Observable(1)
+animate_record!(scene, trace.retval, t, mass_scale=0.02)
+display(scene)
+while true
+    sleep(1.0/24)
+    t[] = (t[] % size(r.snapshots, 2)) + 1
+end
+
+
+##
+
+"""
+trace = Gen.simulate(force_model, (10, 1.0, 0.1, 20, 48, 1.0/24.0, 0.9))
+r = trace_to_record(trace)
+
+scene = Scene(resolution=(1200, 1200), show_axis=false, show_grid=false)
+draw_grid!(scene, r.force)
+display(scene)
+
+
+for i in 1:50
+    trace = Gen.simulate(force_model, (10, 1.0, 0.1, 20, 48, 1.0/24.0))
+    r = trace_to_record(trace)
+
+    directions = []
+    for I in CartesianIndices(r.force.values)
+        push!(directions, r.force.values[I] / 24)
+    end
+
+    scene[end][:directions] = directions
+    sleep(1/5)
+end
+"""
+nothing
+##
+    #draw_mass_paths!(scene, r, mass_scale=0.01)
+#draw_mass_paths!(scene, trace.retval, mass_scale=0.01)
+
+
+##
+
+function make_choicemap(snapshots :: Array{Mass, 2})
+    n_masses, timesteps = size(snapshots)
+    #@assert args[4] == n_masses
+    #@assert args[5] == timesteps
+
+    cmap = Gen.choicemap()
+    for step in 1:timesteps
+        for i in 1:n_masses
+            cmap[(:px, i, step)] = snapshots[i, step].pos[1]
+            cmap[(:py, i, step)] = snapshots[i, step].pos[2]
+        end
+    end
+    cmap
+end
+
+function do_inference(args :: Tuple, snapshots :: Array{Mass, 2}; computation = 100, cb=nothing)
+    cmap = make_choicemap(snapshots)
+    trace, p = Gen.generate(force_model, args, cmap)
+
+    probs = [p]
+
+    for i in 1:computation
+        (trace, _) = metropolis_hastings(trace, select(:noise))
+        (trace, _) = metropolis_hastings(trace, select(:length_scale))
+        (trace, p) = metropolis_hastings(trace, select(:force_xs, :force_ys))
+        if cb != nothing
+            cb(trace)
+        end
+        push!(probs, p)
+    end
+
+    trace, probs
+end
+
+
+##
+
+trace = Gen.simulate(force_model, (10, 1.0, 0.1, 20, 48, 1.0/24.0, 0.9))
+scene = Scene(resolution=(1200, 1200), show_axis=false, show_grid=false)
+draw_grid!(scene, trace.retval.force, arrowcolor=:lightgray)
+#draw_grid!(scene, r.force, arrowcolor=:blue)
+t = Makie.Observable(1)
+#animate_record!(scene, trace.retval, t, mass_scale=0.02)
+function update_t()
+    current = floor(Int64, Base.time() * 24 % args[5])
+    if current != t[]
+        t[] = current
+    end
+end
+#draw_mass_paths!(scene, trace.retval, mass_scale=0.01)
+
+display(scene)
+
+#plot(probs)
+
+##
+while true
+    update_t()
+    sleep(0.001)
+end
+##
+
+
+
+##
+
+##
+trace = Gen.simulate(force_model, (10, 1.0, 0.1, 20, 48, 1.0/24.0, 0.9))
+@time trace, probs = do_inference((10, 1.0, 0.1, 20, 48, 1.0/24.0, 0.9), trace.retval.snapshots, computation=100)

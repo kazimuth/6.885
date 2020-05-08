@@ -12,11 +12,10 @@ using ColorSchemes
 
 struct Grid{T}
     values :: Array{T, 2}
-    left :: Float64
-    right :: Float64
-    bottom :: Float64
-    top :: Float64
+    xrange :: Tuple{Float64, Float64}
+    yrange :: Tuple{Float64, Float64}
 
+    # redundant, just avoid recomputation
     width :: Float64
     height :: Float64
 end
@@ -28,8 +27,7 @@ function Grid(values, xrange, yrange)
     @assert left < right
     @assert bottom < top
 
-    Grid(values, Float64(left), Float64(right),
-        Float64(bottom), Float64(top), Float64(right - left), Float64(top - bottom))
+    Grid(values, xrange, yrange, Float64(right - left), Float64(top - bottom))
 end
 @inline function map_range(
     x :: Float64,
@@ -42,16 +40,18 @@ end
     #unit = mod(unit, 1.0)
     postmin + unit * postsize
 end
+
+"""Clip a value to a range, and return whether it was clipped."""
 @inline function clip(
     x :: Float64,
-    min :: Float64,
-    max :: Float64)
+    range :: Tuple{Float64, Float64}) :: Tuple{Float64, Bool}
+    min, max = range
     if x < min
-        min
-    elseif x > max
-        max
+        min, true
+    elseif x >= max
+        prevfloat(max), true # avoid rounding issues when indexing
     else
-        x
+        x, false
     end
 end
 
@@ -63,8 +63,8 @@ end
 
 @inline function real_to_index(grid :: Grid, x :: Float64, y :: Float64) :: CartesianIndex
     sx, sy = size(grid.values)
-    mapped_x = map_range(x, grid.left, grid.width, 1.0, Float64(sx))
-    mapped_y = map_range(y, grid.bottom, grid.height, 1.0, Float64(sy))
+    mapped_x = map_range(x, grid.xrange[1], grid.width, 1.0, Float64(sx))
+    mapped_y = map_range(y, grid.yrange[1], grid.height, 1.0, Float64(sy))
 
     i = floor(Int32, mapped_x)
     j = floor(Int32, mapped_y)
@@ -101,8 +101,8 @@ g.values[3,2] = 32
 @inline function index_to_center(grid :: Grid, x :: Int, y :: Int) :: Point2
     sx, sy = size(grid.values)
 
-    mapped_x = map_range(Float64(x) + 0.5, 1.0, Float64(sx), grid.left, grid.width)
-    mapped_y = map_range(Float64(y) + 0.5, 1.0, Float64(sy), grid.bottom, grid.height)
+    mapped_x = map_range(Float64(x) + 0.5, 1.0, Float64(sx), grid.xrange[1], grid.width)
+    mapped_y = map_range(Float64(y) + 0.5, 1.0, Float64(sy), grid.yrange[1], grid.height)
 
     Point2((mapped_x, mapped_y))
 end
@@ -155,20 +155,29 @@ end
 
 Base.zero(Mass) = Mass(0.0, Vec2d(0.0), Vec2d(0.0))
 
+
 # simple euler integration, nearest-neighbor interpolation on grid
 
-function step_mass(force :: Grid, mass :: Mass; dt :: Float64 = 1 / 24) :: Mass
+function step_mass(force :: Grid, mass :: Mass; dt :: Float64 = 1 / 24, friction :: Float64 = 0.9) :: Mass
     I = real_to_index(force, mass.pos[1], mass.pos[2])
     F = force.values[I]
 
     vel = mass.vel + F * (dt / mass.mass)
     pos_ = mass.pos + vel * dt
-    pos = Point2(
-        clip(pos_[1], force.left, force.right),
-        clip(pos_[2], force.bottom, force.top),
-    )
 
-    Mass(mass.mass, pos, vel)
+    vx, vy = vel
+
+    px, xflipped = clip(pos_[1], force.xrange)
+    py, yflipped = clip(pos_[2], force.yrange)
+
+    if xflipped
+        vx *= -1
+    end
+    if yflipped
+        vy *= -1
+    end
+
+    Mass(mass.mass, Point2d(px, py), Vec2d(vx, vy))
 end
 
 g = map_grid(p -> Vec2d(1.0, -2.0), Vec2d, (-1.0, 1.0), (-1.0, 1.0), 9)
@@ -183,24 +192,24 @@ mp = step_mass(g, m, dt=dt)
 @test isapprox(mp.pos[1], (1 * dt) * dt)
 @test isapprox(mp.pos[2], (-2 * dt) * dt)
 
-struct SimulationTrace
+struct SimulationRecord
     dt :: Float64
     force :: Grid{Vec2d}
     # [index, time]
     snapshots :: Array{Mass, 2}
 end
 
-function simulate_deterministic(force :: Grid{Vec2d}, masses :: Vector{Mass}; dt=Float64(1/24), timesteps=48)
+function simulate_deterministic(force :: Grid{Vec2d}, masses :: Vector{Mass}; dt=Float64(1/24), timesteps=48, friction::Float64 = 0.9)
     snapshots = zeros(Mass, length(masses), timesteps)
     snapshots[:, 1] = masses
 
     for t in 2:timesteps
         for i in 1:length(masses)
-            snapshots[i, t] = step_mass(force, snapshots[i, t-1], dt=dt)
+            snapshots[i, t] = step_mass(force, snapshots[i, t-1], dt=dt, friction=friction)
         end
     end
 
-    SimulationTrace(dt, force, snapshots)
+    SimulationRecord(dt, force, snapshots)
 end
 
 
@@ -219,69 +228,35 @@ function draw_grid!(scene, grid :: Grid{Vec2d}; scale=1/24, arrowsize=0.02, kwar
 end
 
 
+function animate_record!(scene, record, t; scheme=ColorSchemes.rainbow, mass_scale = 0.05)
+    n_masses, timesteps = size(record.snapshots)
+    #sl = slider(range(1, timesteps, step=1), 1)
+    #t = sl[end][:value]
 
-function animate_trace(trace; mass_scale = 0.05)
-    sl = slider(range(1, size(trace.snapshots, 2), step=1), 1)
-    t = sl[end][:value]
+    #draw_grid!(scene, record.force; linecolor=:gray)
 
-    scene = Scene(resolution=(1200, 1200), show_axis=false, show_grid=false)
-    draw_grid!(scene, trace.force; linecolor=:gray)
+    masses = lift(t -> [m.pos for m in record.snapshots[:, t]], t)
+    weights = [m.mass * mass_scale for m in record.snapshots[:, 1]]
+    colors = map(i -> get(scheme, (i-1)/n_masses), 1:n_masses)
+    scatter!(scene, masses, markersize=weights, color=colors)
 
-    masses = lift(t -> [m.pos for m in trace.snapshots[:, t]], t)
-    weights = [m.mass * mass_scale for m in trace.snapshots[:, 1]]
-    scatter!(scene, masses, markersize=weights)
-
-    hbox(scene, sl), t
+    #hbox(scene, sl), t
 end
 
-
-function animate_trace(trace; mass_scale = 0.05)
-    sl = slider(range(1, size(trace.snapshots, 2), step=1), 1)
-    t = sl[end][:value]
-
-    scene = Scene(resolution=(1200, 1200), show_axis=false, show_grid=false)
-    draw_grid!(scene, trace.force; linecolor=:gray)
-
-    masses = lift(t -> [m.pos for m in trace.snapshots[:, t]], t)
-    weights = [m.mass * mass_scale for m in trace.snapshots[:, 1]]
-    scatter!(scene, masses, markersize=weights)
-
-    hbox(scene, sl), t
-end
-
-function draw_mass_paths!(scene, trace; scheme=ColorSchemes.rainbow, mass_scale=0.05, override_color=())
-    n_masses = size(trace.snapshots, 1)
-    n_times = size(trace.snapshots, 2)
+function draw_mass_paths!(scene, record; scheme=ColorSchemes.rainbow, mass_scale=0.05, override_color=())
+    n_masses = size(record.snapshots, 1)
+    n_times = size(record.snapshots, 2)
 
     colors = map(i -> get(scheme, (i-1)/n_masses), 1:n_masses)
 
     for i in 1:n_masses
-        points = [trace.snapshots[i, j].pos for j in 1:n_times]
+        points = [record.snapshots[i, j].pos for j in 1:n_times]
         lines!(scene, points, color=colors[i], linewidth=2.0)
     end
 
-    starts = [m.pos for m in trace.snapshots[:, 1]]
-    weights = [m.mass * mass_scale for m in trace.snapshots[:, 1]]
+    starts = [m.pos for m in record.snapshots[:, 1]]
+    weights = [m.mass * mass_scale for m in record.snapshots[:, 1]]
     scatter!(scene, starts, color=colors, markersize=weights)
 
     scene
 end
-
-
-"""
-g = map_grid(p -> 3 * Vec2d(-p), Vec2d, (-1.0, 1.0), (-1.0, 1.0), 9)
-
-masses = [
-    Mass(1.0, Vec2(0.25, 0.25), Vec2(-.3, .3)),
-    Mass(1.0, Vec2(-0.25, 0.25), Vec2(-.3, -.3)),
-]
-
-trace_ = simulate_deterministic(g, masses)
-
-scene = Scene(resolution=(1200, 1200), show_axis=false, show_grid=false)
-
-draw_grid!(scene, trace_.force)
-draw_mass_paths!(scene, trace_, )
-
-display(scene)
-"""

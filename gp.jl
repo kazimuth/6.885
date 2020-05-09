@@ -1,6 +1,6 @@
-using Pkg
-pkg"activate ."
-
+#using Pkg
+#pkg"activate ."
+#
 using Gen
 using GeometryBasics
 using LinearAlgebra
@@ -28,21 +28,17 @@ function cov_vectorized(length_scale :: Float64, xs :: Vector{Point2d})
 end
 
 """Sample a GP on a 2d grid."""
-@gen function grid_model(xs::Array{Point2d, 2}, length_scale :: Float64, noise :: Float64) :: Array{Float64, 2}
-    xs_ = reshape(xs, :)
-
+@gen function grid_model(xs::Vector{Point2d}, length_scale :: Float64, noise :: Float64) :: Vector{Float64}
     # Compute the covariance between every pair (xs[i], xs[j])
     cov_matrix = compute_cov_matrix_vectorized(
         xs -> cov_vectorized(length_scale, xs),
         noise,
-        xs_
+        xs
     )
 
     # Sample from the GP using a multivariate normal distribution with
     # the kernel-derived covariance matrix.
-    ys_ ~ mvnormal(zeros(length(xs)), cov_matrix)
-
-    ys = reshape(ys_, size(xs)...)
+    ys ~ mvnormal(zeros(length(xs)), cov_matrix)
 
     return ys
 end;
@@ -83,8 +79,4 @@ function predict_ys(f_vec, noise::Float64,
     (conditional_mu, conditional_cov_matrix) = compute_predictive(
         f_vec, noise, xs, ys, new_xs)
     mvnormal(conditional_mu, conditional_cov_matrix)
-end
-
-function grid_centers(xrange :: Bounds, yrange :: Bounds, xres :: Int64, yres :: Int64) :: Vector{Point2d}
-    reshape(map_grid(identity, Point2d, xrange, yrange, xres, yres).values, :)
 end

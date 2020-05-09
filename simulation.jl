@@ -1,6 +1,6 @@
-using Pkg
-pkg"activate ."
-
+#using Pkg
+#pkg"activate ."
+#
 using Test
 using Makie
 using AbstractPlotting
@@ -166,8 +166,6 @@ end
     @test all([g.values[I] == index_to_center(g, I[1], I[2]) for I in CartesianIndices(g.values)])
 end
 
-##
-
 struct ExtraParams
     dt :: Float64
     friction :: Float64
@@ -178,6 +176,8 @@ end
     LOW = 1
     HIGH = 2
 end
+
+Base.zero(Bounce) = NONE
 
 """Step a single dimension of a single particle.
 Particles collide perfectly elastically with the boundary.
@@ -253,37 +253,31 @@ end
     @test all(bounces)
 end
 
-##
+function step_particle(pos :: Point2d, vel :: Vec2d, mass :: Float64;
+    forces :: Grid, p :: ExtraParams) :: Tuple{Point2d, Vec2d, Vec2{Bounce}}
+    F = sample_grid(forces, pos[1], pos[2])
 
-function step_particle(pos :: Point2d, vel :: Vec2d, mass :: Float6;
-    grid :: Grid, p :: ExtraParams) :: Tuple{Point2d, Vec2d, Vec2{Bounce}}
-    F = sample_grid(grid, pos[1], pos[2])
-
-    px, vx, bx = step_dim(pos[1], vel[1], F[1]/mass, grid.xrange, p)
-    py, vy, by = step_dim(pos[2], vel[2], F[2]/mass, grid.yrange, p)
+    px, vx, bx = step_dim(pos[1], vel[1], F[1]/mass, forces.xrange, p)
+    py, vy, by = step_dim(pos[2], vel[2], F[2]/mass, forces.yrange, p)
 
     (Point2d(px, py), Vec2d(vx, vy), Vec2(bx, by))
 end
 
 @testset "step_particle" begin
-    grid = Grid(reshape([Vec2d(0.0, 0.3)], 1, 1), (0.0, 1.0), (0.0, 1.0))
+    forces = Grid(reshape([Vec2d(0.0, 0.3)], 1, 1), (0.0, 1.0), (0.0, 1.0))
     p = ExtraParams(1.0/24, 0.9)
 
     pos = Point2d(0.8, 0.3)
     vel = Vec2d(1.0 * 24, 0.1)
     mass = 1.0
-    new_pos, new_vel, bounce = step_particle(pos, vel, mass, grid=grid, p=p)
+    new_pos, new_vel, bounce = step_particle(pos, vel, mass, forces=forces, p=p)
 
     @test bounce[1] == HIGH
     @test bounce[2] == NONE
 end
 
-##
-
 # indexed: [timestep, index]
 PositionArray = Array{Point2d, 2}
-
-##
 
 function draw_grid!(scene, grid :: Grid{Vec2d}; scale=1/24, arrowsize=0.02, kwargs...)
     points = Point2d[]

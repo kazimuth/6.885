@@ -10,16 +10,34 @@ using ColorSchemes
 include("simulation.jl")
 include("gp.jl")
 
-function grids_to_vec_grid(xs :: Grid{Float64}, ys :: Grid{Float64}) :: Grid{Vec2d}
-    @assert xs.xrange = ys.xrange
-    @assert xs.yrange = ys.yrange
+##
 
-    Grid([Vec2d(xs.values[I], ys.values[I]) for I in CartesianIndices(xs.values)], xs.xrange, xs.yrange)
+
+function grid_centers(xrange :: Bounds, yrange :: Bounds, xres :: Int64, yres :: Int64) :: Vector{Point2d}
+    reshape(map_grid(identity, Point2d, xrange, yrange, xres, yres).values, :)
+end
+
+function grids_to_vec_grid(
+        centers :: Vector{Point2d},
+        xs :: Vector{Float64}, ys :: Vector{Float64},
+        xrange :: Bounds, yrange :: Bounds,
+        xres :: Int64, yres :: Int64,
+        ) :: Grid{Vec2d}
+    values = [Vec2d(xs[i], ys[i]) for i in 1:length(xs)]
+    result = Grid(reshape(values, xres, yres), xrange, yrange)
+
+    for i in 1:length(xs)
+        I = real_to_index(result, centers[i][1], centers[i][2])
+        @assert result.values[I][1] == xs[i]
+        @assert result.values[I][2] == ys[i]
+    end
+
+    result
 end
 
 
 function run_particle(initial_pos :: Point2d, initial_vel :: Vec2d, mass :: Float64;
-        grid :: Grid, timesteps :: Int64, p :: ExtraParams) :: Tuple{Vector{Point2d}, Vector{Vec2{Bounce}}}
+        forces :: Grid, timesteps :: Int64, p :: ExtraParams) :: Tuple{Vector{Point2d}, Vector{Vec2{Bounce}}}
     positions = [initial_pos]
     bounces = [Vec2(NONE, NONE)]
 
@@ -27,7 +45,7 @@ function run_particle(initial_pos :: Point2d, initial_vel :: Vec2d, mass :: Floa
     vel = initial_vel
 
     for t in 2:timesteps
-        pos, vel, bounce = step_particle(pos, vel, mass, grid=grid, p=p)
+        pos, vel, bounce = step_particle(pos, vel, mass, forces=forces, p=p)
         push!(positions, pos)
         push!(bounces, bounce)
     end
@@ -37,7 +55,7 @@ end
 
 @testset "run_particle" begin
     ps, bs = run_particle(Point2d(0.5, 0.5), Vec2d(0.0, 0.0), 1.0,
-        grid=map_grid(x -> Vec2d(0.1, 0.1), Vec2d, (0., 1.), (0.1, 1.), 10, 10),
+        forces=map_grid(x -> Vec2d(0.1, 0.1), Vec2d, (0., 1.), (0.1, 1.), 10, 10),
         timesteps=48,
         p=ExtraParams(1.0/24, 0.9))
     @test size(ps, 1) == 48
@@ -57,15 +75,16 @@ Samples a particle, simulates its interaction with the grid, observes its positi
 and returns its TRUE positions and bounces. Note that observations are different from return value!
 """
 @gen (static) function random_particle(observe_noise :: Float64,
-    grid :: Grid{Vec2d},
+    forces :: Grid{Vec2d},
     timesteps :: Int64,
-    p :: ExtraParams) :: Tuple{Vector{Point2d}, Vector{Bounce}}
+    p :: ExtraParams) :: Tuple{Vector{Point2d}, Vector{Vec2{Bounce}}}
 
-    initial_x ~ Gen.uniform(grid.xrange[1], grid.xrange[2])
-    initial_y ~ Gen.uniform(grid.yrange[1], grid.yrange[2])
+    initial_x ~ Gen.uniform(forces.xrange[1], forces.xrange[2])
+    initial_y ~ Gen.uniform(forces.yrange[1], forces.yrange[2])
 
-    true_positions, true_bounces = run_particle(Point2d(initial_x, initial_y), Vec2d(0.0, 0.0), 1.0, grid, timesteps, p)
-#
+    true_positions, true_bounces = run_particle(Point2d(initial_x, initial_y), Vec2d(0.0, 0.0), 1.0;
+        forces=forces, timesteps=timesteps, p=p)
+
     noises = [observe_noise for t in 1:timesteps]
     observations ~ Gen.Map(observe_position)(true_positions, noises)
 
@@ -78,7 +97,7 @@ end
                           n_particles :: Int64,
                           force_scale :: Float64,
                           timesteps :: Int64,
-                          p :: ExtraParams)
+                          p :: ExtraParams) :: Vector{Tuple{Vector{Point2d}, Vector{Vec2{Bounce}}}}
     ## Build grid
     # Sample a length scale
     length_scale ~ gamma_bounded_below(1, width/10, width * 0.01)
@@ -92,7 +111,7 @@ end
     # Sample values
     force_xs ~ grid_model(centers, length_scale, noise)
     force_ys ~ grid_model(centers, length_scale, noise)
-    forces = grids_to_vec_grid(force_xs, force_ys)
+    forces = grids_to_vec_grid(centers, force_xs, force_ys, bounds, bounds, res, res)
 
     ## Noise in velocity / position observations
     observe_noise = width / 100.0
@@ -101,7 +120,7 @@ end
     ## positions
     mass_paths ~ Gen.Map(random_particle)(
         [observe_noise for i in 1:n_particles],
-        [grid for i in 1:n_particles],
+        [forces for i in 1:n_particles],
         [timesteps for i in 1:n_particles],
         [p for i in 1:n_particles])
 
@@ -110,61 +129,62 @@ end
 
 Gen.@load_generated_functions
 
+##
+
+trace = Gen.simulate(force_model, (1.0, 5, 3, 0.1, 24, ExtraParams(1.0/24, 0.9)))
 
 ##
 
+trace[:length_scale]
 
-trace = Gen.simulate(force_model, (1.0, 5, 3, 0.1,))
-
-
-@gen (static) function force_model(
-                          width :: Float64,
-                          res :: Int64,
-                          n_particles :: Int64,
-                          force_scale :: Float64,
-                          timesteps :: Int64,
-                          p :: ExtraParams)
+trace[:mass_paths => 1 => :initial_x]
 
 ##
 
+trace[:mass_paths => 1 => :observations => 1]
+
+##
 
 """I could probably have named these data structures better..."""
-function trace_to_record(trace :: Gen.DynamicDSLTrace) :: SimulationRecord
-    res = trace.args[1]
-    width = trace.args[2]
-    n = trace.args[4]
-    timesteps = trace.args[5]
-    dt = trace.args[6]
+function read_grid(trace) :: Grid{Vec2d}
+    width, res, n_particles, force_scale, timesteps, p = trace.args
+    bounds = (0.0, width)
+    centers = grid_centers(bounds, bounds, res, res)
 
-    force_xs = trace[:force_xs] :: Array{Float64, 2}
-    force_ys = trace[:force_ys] :: Array{Float64, 2}
+    grids_to_vec_grid(trace[:force_xs], trace[:force_ys])
+end
 
-    forces = Grid(zeros(Vec2d, res, res), (0.0, width), (0.0, width))
-    for i in 1:res
-        for j in 1:res
-            forces.values[i, j] = Vec2d(force_xs[i, j], force_ys[i, j])
-        end
-    end
-    snapshots = zeros(Mass, n, timesteps)
-    for step in 1:timesteps
-        for i in 1:n
-            snapshots[i, step] = Mass(
-                1.0,
-                Point2d(
-                    trace[(:px, i, step)],
-                    trace[(:py, i, step)]
-                ),
-                Vec2d(0.0, 0.0)
-            )
+function read_observations(trace) :: PositionArray
+    width, res, n_particles, force_scale, timesteps, p = trace.args
+    observations = zeros(Point2d, timesteps, n_particles)
+
+    for i in 1:particles
+        for t in 1:timesteps
+            observations[t, i] = trace[:mass_paths => i => :observations => t]
         end
     end
 
-    SimulationRecord(dt, forces, snapshots)
+    observations
+end
+
+function read_true_positions_bounces(trace) :: Tuple{PositionArray, Array{Vec2{Bounce}}}
+    width, res, n_particles, force_scale, timesteps, p = trace.args
+    positions = zeros(Point2d, timesteps, n_particles)
+    bounces = zeros(Bounce, timesteps, n_particles)
+
+    for i in 1:particles
+        pp, bb = trace[:mass_paths => i ]
+        for t in 1:timesteps
+            observations[t, i] = trace[:mass_paths => i => :observations => t]
+        end
+    end
+
+    observations
 end
 
 ##
 
-
+zero(Bounce)
 
 ##
 

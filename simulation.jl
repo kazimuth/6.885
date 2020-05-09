@@ -20,8 +20,11 @@ Design:
 a grid of N x M cells
 [x][y]
 x increases right, y increases up
-So, printing will give strange results (y will be flipped)."""
-struct Grid{T}
+So, printing will give strange results (y will be flipped).
+
+Only mutable to save memory on copies.
+"""
+mutable struct Grid{T}
     values :: Array{T, 2}
     xrange :: Bounds
     yrange :: Bounds
@@ -114,18 +117,19 @@ end
 
 
 """
-    map_grid(f, T, xrange, yrange, res)
+    map_grid(f, T, xrange, yrange, xres, yres)
 
-Create a grid of type T, with ranges (xrange, yrange) and resolution res,
-by mapping f over the slots.
+Create a grid of type T, with ranges (xrange, yrange) and resolution (xres, yres),
+by mapping f over the centroids of the slots.
 
 """
 function map_grid(f,
                   T :: Type{_T},
                   xrange :: Tuple{Float64, Float64},
                   yrange :: Tuple{Float64, Float64},
-                  res :: Int) :: Grid{_T} where _T
-    g = Grid(zeros(T, res, res), xrange, yrange)
+                  xres :: Int,
+                  yres :: Int) :: Grid{_T} where _T
+    g = Grid(zeros(T, xres, yres), xrange, yrange)
     for I in CartesianIndices(g.values)
         v = index_to_center(g, I[1], I[2])
         g.values[I] = f(v)
@@ -158,19 +162,11 @@ end
     @test disp(g) == [12 22 32;
                       11 21 31]
 
-    g = map_grid(identity, Point2d, (0.0, 1.0), (0.0, 1.0), 13)
+    g = map_grid(identity, Point2d, (0.0, 3.0), (0.0, 1.0), 7, 13)
     @test all([g.values[I] == index_to_center(g, I[1], I[2]) for I in CartesianIndices(g.values)])
 end
 
 ##
-
-struct Mass
-    mass :: Float64
-    pos :: Point2d
-    vel :: Vec2d
-end
-
-Base.zero(Mass) = Mass(0.0, Point2d(0.0), Vec2d(0.0))
 
 struct ExtraParams
     dt :: Float64
@@ -245,7 +241,12 @@ end
                 new_vel_, acc_ = invert_step_dim(pos, vel, new_pos, bounce, bounds, p)
                 @assert isapprox(acc_, acc, atol=0.0001) &&
                     isapprox(new_vel_, new_vel, atol=0.0001) "$pos : $vel : $acc : $bounce, $new_vel_?=$new_vel, $acc_?=$acc"
+
                 bounces[Int64(bounce) + 1] = true
+
+                if bounce == NONE
+                    @assert isapprox(new_vel, (vel + acc * p.dt) * p.friction)
+                end
             end
         end
     end
@@ -253,74 +254,36 @@ end
 end
 
 ##
-Int64(NONE) + 1
-##
 
-isapprox(1.3, 1.3, )
+function step_particle(pos :: Point2d, vel :: Vec2d, mass :: Float6;
+    grid :: Grid, p :: ExtraParams) :: Tuple{Point2d, Vec2d, Vec2{Bounce}}
+    F = sample_grid(grid, pos[1], pos[2])
 
-##
+    px, vx, bx = step_dim(pos[1], vel[1], F[1]/mass, grid.xrange, p)
+    py, vy, by = step_dim(pos[2], vel[2], F[2]/mass, grid.yrange, p)
 
-##
-
-
-# simple euler integration, nearest-neighbor interpolation on grid
-
-function step_mass(force :: Grid, mass :: Mass; dt :: Float64 = 1 / 24, friction :: Float64 = 0.9) :: Mass
-    I = real_to_index(force, mass.pos[1], mass.pos[2])
-
-    @assert I[1] >= 1 && I[1] <= size(force.values, 1) &&
-        I[2] >= 1 && I[2] <= size(force.values, 2) "$(mass.pos) -> $I"
-    F = force.values[I]
-
-    vel_ = mass.vel + F * (dt / mass.mass)
-    vel_ *= friction
-    pos_ = mass.pos + vel * dt
-
-    pos, vel = clipflip(pos_, vel_)
-
-
-    Mass(mass.mass, Point2d(px, py), Vec2d(vx, vy))
+    (Point2d(px, py), Vec2d(vx, vy), Vec2(bx, by))
 end
 
-g = map_grid(p -> Vec2d(1.0, -2.0), Vec2d, (-1.0, 1.0), (-1.0, 1.0), 9)
+@testset "step_particle" begin
+    grid = Grid(reshape([Vec2d(0.0, 0.3)], 1, 1), (0.0, 1.0), (0.0, 1.0))
+    p = ExtraParams(1.0/24, 0.9)
 
-m = Mass(1.0, Vec2d(0.0, 0.0), Vec2d(0.0, 0.0))
-dt = 1/24
+    pos = Point2d(0.8, 0.3)
+    vel = Vec2d(1.0 * 24, 0.1)
+    mass = 1.0
+    new_pos, new_vel, bounce = step_particle(pos, vel, mass, grid=grid, p=p)
 
-mp = step_mass(g, m, dt=dt)
-
-@test isapprox(mp.vel[1], 1 * dt * .9)
-@test isapprox(mp.vel[2], -2 * dt * .9)
-@test isapprox(mp.pos[1], (1 * dt) * dt * .9)
-@test isapprox(mp.pos[2], (-2 * dt) * dt * .9)
-
-struct SimulationRecord
-    dt :: Float64
-    friction :: Float64
-    force :: Grid{Vec2d}
-    initial_masses :: Vector{Mass}
-
-    # [index, time]
-    positions :: Array{Vec2d, 2}
-end
-
-##
-function simulate_deterministic(force :: Grid{Vec2d}, masses :: Vector{Mass}; dt=Float64(1/24), timesteps=48, friction::Float64 = 0.9)
-    current_masses = copy(masses)
-    positions = zeros(Vec2d, length(masses), timesteps)
-    snapshots[:, 1] = masses
-
-    for t in 2:timesteps
-        for i in 1:length(masses)
-            snapshots[i, t] = step_mass(force, snapshots[i, t-1], dt=dt, friction=friction)
-        end
-    end
-
-    SimulationRecord(dt, friction, force, snapshots)
+    @test bounce[1] == HIGH
+    @test bounce[2] == NONE
 end
 
 ##
 
+# indexed: [timestep, index]
+PositionArray = Array{Point2d, 2}
+
+##
 
 function draw_grid!(scene, grid :: Grid{Vec2d}; scale=1/24, arrowsize=0.02, kwargs...)
     points = Point2d[]
@@ -336,35 +299,28 @@ function draw_grid!(scene, grid :: Grid{Vec2d}; scale=1/24, arrowsize=0.02, kwar
     scene
 end
 
+function animate_record!(scene, masses :: Vector{Float64}, positions :: PositionArray, t;
+    scheme=ColorSchemes.rainbow, mass_scale = 0.05)
+    timesteps, n_particles = size(positions)
 
-function animate_record!(scene, record, t; scheme=ColorSchemes.rainbow, mass_scale = 0.05)
-    n_masses, timesteps = size(record.snapshots)
-    #sl = slider(range(1, timesteps, step=1), 1)
-    #t = sl[end][:value]
-
-    #draw_grid!(scene, record.force; linecolor=:gray)
-
-    masses = lift(t -> [m.pos for m in record.snapshots[:, t]], t)
-    weights = [m.mass * mass_scale for m in record.snapshots[:, 1]]
-    colors = map(i -> get(scheme, (i-1)/n_masses), 1:n_masses)
+    masses = lift(t -> positions[t, :], t)
+    weights = masses .* mass_scale
+    colors = map(i -> get(scheme, (i-1)/n_particles), 1:n_particles)
     scatter!(scene, masses, markersize=weights, color=colors)
-
-    #hbox(scene, sl), t
 end
 
-function draw_mass_paths!(scene, record; scheme=ColorSchemes.rainbow, mass_scale=0.05, override_color=())
-    n_masses = size(record.snapshots, 1)
-    n_times = size(record.snapshots, 2)
+function draw_mass_paths!(scene, masses :: Vector{Float64}, positions :: PositionArray;
+    scheme=ColorSchemes.rainbow, mass_scale=0.05)
+    timesteps, n_particles = size(positions)
 
-    colors = map(i -> get(scheme, (i-1)/n_masses), 1:n_masses)
+    colors = map(i -> get(scheme, (i-1)/n_particles), 1:n_particles)
 
-    for i in 1:n_masses
-        points = [record.snapshots[i, t].pos for t in 1:n_times]
-        lines!(scene, points, color=colors[i], linewidth=2.0)
+    for i in 1:n_particles
+        lines!(scene, positions[:, i], color=colors[i], linewidth=2.0)
     end
 
-    starts = [m.pos for m in record.snapshots[:, 1]]
-    weights = [m.mass * mass_scale for m in record.snapshots[:, 1]]
+    starts = positions[1, :]
+    weights = masses .* mass_scale
     scatter!(scene, starts, color=colors, markersize=weights)
 
     scene

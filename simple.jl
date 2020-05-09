@@ -7,79 +7,125 @@ using AbstractPlotting
 using GeometryBasics
 using ColorSchemes
 
-
 include("simulation.jl")
 include("gp.jl")
 
-##
+function grids_to_vec_grid(xs :: Grid{Float64}, ys :: Grid{Float64}) :: Grid{Vec2d}
+    @assert xs.xrange = ys.xrange
+    @assert xs.yrange = ys.yrange
+
+    Grid([Vec2d(xs.values[I], ys.values[I]) for I in CartesianIndices(xs.values)], xs.xrange, xs.yrange)
+end
+
+
+function run_particle(initial_pos :: Point2d, initial_vel :: Vec2d, mass :: Float64;
+        grid :: Grid, timesteps :: Int64, p :: ExtraParams) :: Tuple{Vector{Point2d}, Vector{Vec2{Bounce}}}
+    positions = [initial_pos]
+    bounces = [Vec2(NONE, NONE)]
+
+    pos = initial_pos
+    vel = initial_vel
+
+    for t in 2:timesteps
+        pos, vel, bounce = step_particle(pos, vel, mass, grid=grid, p=p)
+        push!(positions, pos)
+        push!(bounces, bounce)
+    end
+
+    (positions, bounces)
+end
+
+@testset "run_particle" begin
+    ps, bs = run_particle(Point2d(0.5, 0.5), Vec2d(0.0, 0.0), 1.0,
+        grid=map_grid(x -> Vec2d(0.1, 0.1), Vec2d, (0., 1.), (0.1, 1.), 10, 10),
+        timesteps=48,
+        p=ExtraParams(1.0/24, 0.9))
+    @test size(ps, 1) == 48
+end
+
+
+"""Observes the position of a particle with noise."""
+@gen (static) function observe_position(position :: Point2d, noise :: Float64) :: Point2d
+    x ~ Gen.normal(position[1], noise)
+    y ~ Gen.normal(position[2], noise)
+    return Point2d(x, y)
+end
+
+
+"""
+Samples a particle, simulates its interaction with the grid, observes its position at every time step with noise,
+and returns its TRUE positions and bounces. Note that observations are different from return value!
+"""
+@gen (static) function random_particle(observe_noise :: Float64,
+    grid :: Grid{Vec2d},
+    timesteps :: Int64,
+    p :: ExtraParams) :: Tuple{Vector{Point2d}, Vector{Bounce}}
+
+    initial_x ~ Gen.uniform(grid.xrange[1], grid.xrange[2])
+    initial_y ~ Gen.uniform(grid.yrange[1], grid.yrange[2])
+
+    true_positions, true_bounces = run_particle(Point2d(initial_x, initial_y), Vec2d(0.0, 0.0), 1.0, grid, timesteps, p)
 #
-#points = reshape(map_grid(identity, Point2d, (0.0, 1.0), (0.0, 1.0), 5).values, :)
-#trace = Gen.simulate(grid_model, (points, 0.5, 0.1))
-#scatter(points, color=trace.retval)
+    noises = [observe_noise for t in 1:timesteps]
+    observations ~ Gen.Map(observe_position)(true_positions, noises)
 
+    return (true_positions, true_bounces)
+end
 
-@gen (grad) function force_model(res :: Int64,
+@gen (static) function force_model(
                           width :: Float64,
+                          res :: Int64,
+                          n_particles :: Int64,
                           force_scale :: Float64,
-                          n :: Int64,
                           timesteps :: Int64,
-                          dt :: Float64,
-                          friction :: Float64)
-
+                          p :: ExtraParams)
     ## Build grid
     # Sample a length scale
     length_scale ~ gamma_bounded_below(1, width/10, width * 0.01)
     # Sample a global noise level
     noise ~ gamma_bounded_below(1, force_scale, 0.01)
-    # Make an empty grid
-    forces = Grid(zeros(Vec2d, res, res), (0.0, width), (0.0, width))
-    # The indices of grid cells and their centroids
-    Is = CartesianIndices(forces.values)
-    centers = [index_to_center(forces, I[1], I[2]) for I in Is] :: Array{Point2d, 2}
 
-    # Sample forces
+    # Always use square grid
+    bounds = (0.0, width)
+    centers = grid_centers(bounds, bounds, res, res)
+
+    # Sample values
     force_xs ~ grid_model(centers, length_scale, noise)
     force_ys ~ grid_model(centers, length_scale, noise)
-    for I in Is
-        forces.values[I] = Vec2d(force_xs[I], force_ys[I])
-    end
-
+    forces = grids_to_vec_grid(force_xs, force_ys)
 
     ## Noise in velocity / position observations
-    noise_factor = width / 100.0
+    observe_noise = width / 100.0
 
-    ## Build starting masses
-    masses = [
-        Mass(
-            # mass
-            1.0,
-            # position
-            Point2d(
-                {(:px, i, 1)} ~ uniform(0.0, width),
-                {(:py, i, 1)} ~ uniform(0.0, width)
-            ),
-            # velocity
-            Vec2d(0.0, 0.0)
-        )
-        for i in 1:n
-    ]
+    ## Sample a bunch of masses, compute their paths, then observe their
+    ## positions
+    mass_paths ~ Gen.Map(random_particle)(
+        [observe_noise for i in 1:n_particles],
+        [grid for i in 1:n_particles],
+        [timesteps for i in 1:n_particles],
+        [p for i in 1:n_particles])
 
-    ## Run simulation
-    record = simulate_deterministic(forces, masses, dt=dt, timesteps=timesteps, friction=friction)
-
-    ## Compute observations (noisy)
-    for step in 2:timesteps
-        for i in 1:n
-            {(:px, i, step)} ~ normal(record.snapshots[i, step].pos[1], noise_factor)
-            {(:py, i, step)} ~ normal(record.snapshots[i, step].pos[2], noise_factor)
-            {(:vx, i, step)} ~ normal(record.snapshots[i, step].vel[1], noise_factor)
-            {(:vy, i, step)} ~ normal(record.snapshots[i, step].vel[2], noise_factor)
-        end
-    end
-
-    ## Return record (not noisy!)
-    record
+    return mass_paths
 end
+
+Gen.@load_generated_functions
+
+
+##
+
+
+trace = Gen.simulate(force_model, (1.0, 5, 3, 0.1,))
+
+
+@gen (static) function force_model(
+                          width :: Float64,
+                          res :: Int64,
+                          n_particles :: Int64,
+                          force_scale :: Float64,
+                          timesteps :: Int64,
+                          p :: ExtraParams)
+
+##
 
 
 """I could probably have named these data structures better..."""
@@ -190,9 +236,9 @@ function make_choicemap(snapshots :: Array{Mass, 2}; length_scale=(), noise=())
         cmap[:noise] = noise
     end
 
-    n_masses, timesteps = size(snapshots)
+    n_particles, timesteps = size(snapshots)
     for step in 1:timesteps
-        for i in 1:n_masses
+        for i in 1:n_particles
             cmap[(:px, i, step)] = snapshots[i, step].pos[1]
             cmap[(:py, i, step)] = snapshots[i, step].pos[2]
         end

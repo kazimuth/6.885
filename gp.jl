@@ -5,16 +5,10 @@ using Gen
 using GeometryBasics
 using LinearAlgebra
 
-##
-
 Vec2d = Vec2{Float64}
 Point2d = Point2{Float64}
 
-##
-
 @dist gamma_bounded_below(shape, scale, bound) = gamma(shape, scale) + bound
-
-##
 
 """Compute covariance function by recursively computing covariance matrices."""
 function compute_cov_matrix_vectorized(f_vec, noise :: Float64, xs::Vector{Point2d})
@@ -56,17 +50,17 @@ end;
 
 """
 Computes the conditional mean and covariance of a Gaussian process with prior mean zero
-and prior covariance function `covariance_fn`, conditioned on noisy observations
+and prior covariance function `f_vec`, conditioned on noisy observations
 `Normal(f(xs), noise * I) = ys`, evaluated at the points `new_xs`.
 """
-function compute_predictive(covariance_fn, noise::Float64,
+function compute_predictive(f_vec, noise::Float64,
                             xs::Vector{Point2d}, ys::Vector{Float64},
                             new_xs::Vector{Point2d})
     n_prev = length(xs)
     n_new = length(new_xs)
     means = zeros(n_prev + n_new)
     #cov_matrix = compute_cov_matrix(covariance_fn, noise, vcat(xs, new_xs))
-    cov_matrix = compute_cov_matrix_vectorized(covariance_fn, noise, vcat(xs, new_xs))
+    cov_matrix = compute_cov_matrix_vectorized(f_vec, noise, vcat(xs, new_xs))
     cov_matrix_11 = cov_matrix[1:n_prev, 1:n_prev]
     cov_matrix_22 = cov_matrix[n_prev+1:n_prev+n_new, n_prev+1:n_prev+n_new]
     cov_matrix_12 = cov_matrix[1:n_prev, n_prev+1:n_prev+n_new]
@@ -83,10 +77,14 @@ end
 """
 Predict output values for some new input values
 """
-function predict_ys(covariance_fn, noise::Float64,
+function predict_ys(f_vec, noise::Float64,
                     xs::Vector{Point2d}, ys::Vector{Float64},
                     new_xs::Vector{Point2d})
     (conditional_mu, conditional_cov_matrix) = compute_predictive(
-        covariance_fn, noise, xs, ys, new_xs)
+        f_vec, noise, xs, ys, new_xs)
     mvnormal(conditional_mu, conditional_cov_matrix)
+end
+
+function grid_centers(xrange :: Bounds, yrange :: Bounds, xres :: Int64, yres :: Int64) :: Vector{Point2d}
+    reshape(map_grid(identity, Point2d, xrange, yrange, xres, yres).values, :)
 end

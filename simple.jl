@@ -1,7 +1,12 @@
+using Pkg
+pkg"activate ."
+
 using Gen
 using Makie
+using AbstractPlotting
 using GeometryBasics
 using ColorSchemes
+
 
 include("simulation.jl")
 include("gp.jl")
@@ -13,7 +18,7 @@ include("gp.jl")
 #scatter(points, color=trace.retval)
 
 
-@gen function force_model(res :: Int64,
+@gen (grad) function force_model(res :: Int64,
                           width :: Float64,
                           force_scale :: Float64,
                           n :: Int64,
@@ -33,12 +38,12 @@ include("gp.jl")
     centers = [index_to_center(forces, I[1], I[2]) for I in Is] :: Array{Point2d, 2}
 
     # Sample forces
-    (force_xs ~ grid_model(centers, length_scale, noise)) :: Array{Float64, 2}
-    (force_ys ~ grid_model(centers, length_scale, noise)) :: Array{Float64, 2}
-    # fill in grid
+    force_xs ~ grid_model(centers, length_scale, noise)
+    force_ys ~ grid_model(centers, length_scale, noise)
     for I in Is
         forces.values[I] = Vec2d(force_xs[I], force_ys[I])
     end
+
 
     ## Noise in velocity / position observations
     noise_factor = width / 100.0
@@ -95,8 +100,8 @@ function trace_to_record(trace :: Gen.DynamicDSLTrace) :: SimulationRecord
         end
     end
     snapshots = zeros(Mass, n, timesteps)
-    for i in 1:n
-        for step in 1:timesteps
+    for step in 1:timesteps
+        for i in 1:n
             snapshots[i, step] = Mass(
                 1.0,
                 Point2d(
@@ -110,6 +115,10 @@ function trace_to_record(trace :: Gen.DynamicDSLTrace) :: SimulationRecord
 
     SimulationRecord(dt, forces, snapshots)
 end
+
+##
+
+
 
 ##
 
@@ -172,12 +181,16 @@ nothing
 
 ##
 
-function make_choicemap(snapshots :: Array{Mass, 2})
-    n_masses, timesteps = size(snapshots)
-    #@assert args[4] == n_masses
-    #@assert args[5] == timesteps
-
+function make_choicemap(snapshots :: Array{Mass, 2}; length_scale=(), noise=())
     cmap = Gen.choicemap()
+    if length_scale != ()
+        cmap[:length_scale] = length_scale
+    end
+    if noise != ()
+        cmap[:noise] = noise
+    end
+
+    n_masses, timesteps = size(snapshots)
     for step in 1:timesteps
         for i in 1:n_masses
             cmap[(:px, i, step)] = snapshots[i, step].pos[1]
@@ -187,8 +200,8 @@ function make_choicemap(snapshots :: Array{Mass, 2})
     cmap
 end
 
-function do_inference(args :: Tuple, snapshots :: Array{Mass, 2}; computation = 100, cb=nothing)
-    cmap = make_choicemap(snapshots)
+function do_inference(args :: Tuple, snapshots :: Array{Mass, 2}; computation = 100, cb=nothing, length_scale=(), noise=())
+    cmap = make_choicemap(snapshots, length_scale=length_scale, noise=noise)
     trace, _ = Gen.generate(force_model, args, cmap)
 
     weights = Float64[]
@@ -196,8 +209,7 @@ function do_inference(args :: Tuple, snapshots :: Array{Mass, 2}; computation = 
     for i in 1:computation
         (trace, _) = metropolis_hastings(trace, select(:noise), check=true)
         (trace, _) = metropolis_hastings(trace, select(:length_scale), check=true)
-        (trace, _) = metropolis_hastings(trace, select(:force_xs), check=true)
-        (trace, w) = metropolis_hastings(trace, select(:force_ys), check=true)
+        (trace, w) = metropolis_hastings(trace, select(:force_xs, :force_ys), check=true)
         if cb != nothing && i % 1 == 0
             cb(trace)
         end
@@ -209,10 +221,79 @@ end
 
 ##
 
+function denoise_curves(record :: SimulationRecord) :: SimulationRecord
+    # TODO
+    record
+end
+
+function second_differences(record :: SimulationRecord)
+    n, timesteps = size(record.snapshots)
+
+    # since we know the exact euler-integral form of the input simulation,
+    # we can invert it algebraically (assuming no noise)
+
+    # known: all ps, v[1]
+    # v_ = (v[i-1] + dt*F[p[i-1]]/mass) * friction
+    # p_ = p[i-1] + v[i] * dt
+    # p[i], v[i] = clipflip(p_, v_)
+
+    # to solve:
+    # p_, v_ = inv_clipflip(p[i], v[i])
+    # v_ = (p[i] - p[i-1]) / dt
+    # p_ = (v[i]/friction - v[i-1]) * (mass/dt)
+
+
+    # instead of directly setting forces, we add to the observations at
+    # their locations.
+
+    dt = record.dt
+    friction = record.friction
+    snapshots = record.snapshots
+
+    # note: difference from previous timestep;
+    # first timestep is 0s
+    vels = zeros(Vec2d, n, timesteps)
+    observed_forces = Grid([[] for v in record.forces.values],
+        record.forces.xrange,
+        record.forces.yrange)
+    for i in 2:timesteps
+        for j in 1:n
+            vels[j, i] = (snapshots[j, i].pos - snapshots[j, i-1].pos) / dt
+
+            F = vels[j, i]/friction - vels[j, i-1]
+        end
+    end
+
+    # again, first timestep is 0s
+    accs = zeros(Vec2d, n, timesteps)
+    for step in 1:timesteps-1
+        for i in 1:n
+            vels[i, step+1] = record.snapshots[i, step+1].pos -
+                record.snapshots[i, step]
+        end
+    end
+
+    # TODO convert to running?
+
+
+end
+
+
+real_trace = Gen.simulate(force_model, (10, 1.0, 0.1, 20, 48, 1.0/24.0, 0.9))
+@time trace, _ = do_inference((10, 1.0, 0.1, 20, 48, 1.0/24.0, 0.9), real_trace.retval.snapshots, computation=10)
+
+second_differences(trace)
+##
+
+
+##
+
 real_trace = Gen.simulate(force_model, (10, 1.0, 0.1, 20, 48, 1.0/24.0, 0.9))
 @time trace, probs = do_inference((10, 1.0, 0.1, 20, 48, 1.0/24.0, 0.9), real_trace.retval.snapshots, computation=10)
 
 
+
+##
 
 ##
 
@@ -250,8 +331,9 @@ display(scene)
 
 ##
 
+
 trace = Gen.simulate(force_model, args)
-@time trace, probs = do_inference(args, trace.retval.snapshots, computation=10000, cb=function(trace)
+@time trace, probs = do_inference(args, trace.retval.snapshots, computation=10000, length_scale=real_trace[:length_scale], noise=real_trace[:noise], cb=function(trace)
     r = trace_to_record(trace)
 
     directions = []
@@ -265,6 +347,17 @@ trace = Gen.simulate(force_model, args)
     sleep(0.001)
 end)
 
+##
+
+cmap = make_choicemap(real_trace.retval.snapshots, length_scale=real_trace[:length_scale], noise=real_trace[:noise])
+trace, _ = Gen.generate(force_model, args, cmap)
+
+v = Gen.map_optimize(trace, select(:force_xs, :force_ys))
+
+scene = Scene(resolution=(1200, 1200), show_axis=false, show_grid=false, limits=AbstractPlotting.Rect(0.0, 0.0, 1.0, 1.0))
+draw_grid!(scene, real_trace.retval.force, arrowcolor=:lightgray)
+draw_grid!(scene, v.retval.force, arrowcolor=:lightblue)
+display(scene)
 
 ##
 
@@ -275,3 +368,8 @@ trace = Gen.simulate(force_model, (10, 1.0, 0.1, 20, 48, 1.0/24.0, 0.9))
 @time trace, probs = do_inference((10, 1.0, 0.1, 20, 48, 1.0/24.0, 0.9), trace.retval.snapshots, computation=100)
 
 ##
+
+# TODO: custom proposal for forces given known velocities
+# TODO: try moving initial point sampling before grid construction? + using a combinator?
+# TODO: sample dist using 2nd-differences +
+#           + prediction of nonexistent points from orig. code!

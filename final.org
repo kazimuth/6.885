@@ -5,21 +5,28 @@
 #+OPTIONS: tex:t latex:t
 #+STARTUP: latexpreview
 
-** TODO plotting: animated + streamplot
+  Given arguments x and assignment u (which is empty for the first form), sample $t \sim q(\cdot; u, x)$ and $r \sim q(\cdot; x, t)$, and return the trace
+  $(x, t, r)$ . Also return the weight (weight):
+
+$\log \frac{p(t, r; x)}{q(t; u, x) q(r; x, t)}$
+
+** DONE plotting: animated + streamplot
+   CLOSED: [2020-05-09 Sat 12:44]
 ** DONE gp sampling helpers for 2d
    CLOSED: [2020-05-04 Mon 19:13]
-** TODO switch from wrap-around to clamping at the edge.
+** DONE switch from wrap-around to bouncing at the edge.
+   CLOSED: [2020-05-09 Sat 12:45]
 ** DONE specify problem more on piazza for vikash
    CLOSED: [2020-05-04 Mon 19:13]
-** TODO HMC
+** DONE HMC
+   CLOSED: [2020-05-09 Sat 12:45]
    https://www.gen.dev/dev/ref/modeling/#Writing-differentiable-code-1
 ** TODO rewrite simulation vectorized to speed up HMC?
 ** TODO maybe use elliptical sampling? but maybe not.
-** TODO setup SLURM node for GPU tests
-
 ** DONE Makie.jl
    CLOSED: [2020-05-04 Mon 19:13]
-** TODO model setup:
+** DONE model setup:
+   CLOSED: [2020-05-09 Sat 12:45]
    sample grid; x and y velocities are independent
    affects variables w/o randomness
    ...but variable measurements have randomness
@@ -30,7 +37,14 @@
 
    https://arxiv.org/pdf/2002.09309.pdf
 
-** TODO check if observing velocities helps
+** TODO custom proposal distribution for forces
+*** TODO switch to AOS + per-dim
+*** TODO invertible step
+
+** TODO make initial position + velocity observations, use map combinator to accelerate piecewise inference
+** TODO try MAP gp?
+** TODO try quadtree gp?
+
 * setup
   install julia from source
 

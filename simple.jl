@@ -198,15 +198,15 @@ end
 function simple_mcmc(constraints :: Gen.ChoiceMap, args :: Tuple; computation = 100, cb=nothing)
     trace, _ = Gen.generate(force_model, args, constraints)
     if cb != nothing
-        cb(trace)
+        cb(trace, 0)
     end
 
     weights = Float64[]
 
-    for i in 1:computation
+    for step in 1:computation
         (trace, w) = metropolis_hastings(trace, select(:force_xs, :force_ys), check=true, observations=constraints)
         if cb != nothing
-            cb(trace)
+            cb(trace, step)
         end
         push!(weights, w)
     end
@@ -341,6 +341,25 @@ function updateloop(f, s, goal_dt=1.0/24)
     println("done.")
 end
 
+
+function debounce(s, f, goal_dt=1.0/24)
+    pt = Base.time()
+    f_t_est = goal_dt
+    return function(args...)
+        if length(s.current_screens) == 0
+            throw(InterruptException())
+        end
+        current = Base.time()
+        if current + f_t_est >= pt + goal_dt
+            start = Base.time()
+            f(args...)
+            yield() # needed to let Makie draw stuff
+            dt = Base.time() - start
+            f_t_est = .9*f_t_est + .1*dt
+        end
+    end
+end
+
 ##
 
 # ~~ static rendering ~~
@@ -412,9 +431,12 @@ draw_grid!(s, gg, arrowcolor=:lightgray, linecolor=:lightgray)
 draw_mass_paths!(s, mm, pp, mass_scale=0.01, colormod=c -> RGBA(c, .5))
 ll, ss = draw_mass_paths!(s, mm, pp .* 0.0, mass_scale=0.01)
 
+text!(s, "booting...", transparency=false, textsize=0.03, position=(0.0, w), align=(:left, :top))
+status = s[end]
+
 display(s)
 
-simple_mcmc(cc, args, computation=1000, cb=function(trace)
+simple_mcmc(cc, args, computation=1000, cb=debounce(s, function(trace, step)
     gg = read_grid(trace)
     guess_grid[:directions] = reshape(gg.values./24, :)
 
@@ -423,8 +445,8 @@ simple_mcmc(cc, args, computation=1000, cb=function(trace)
         ll[i][:positions] = oo[:, i]
     end
     ss[:positions] = oo[1, :]
-    sleep(0.0)
-end)
+    status[:text] = "mcmc step $step"
+end))
 
 ##
 

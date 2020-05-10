@@ -19,6 +19,9 @@ end
 function magnitude(p :: Point2d)
     sqrt(p[1] * p[1] + p[2] * p[2])
 end
+function magnitude(p :: Vec2d)
+    sqrt(p[1] * p[1] + p[2] * p[2])
+end
 
 function cov_vectorized(length_scale :: Float64, xs :: Vector{Point2d})
     xs_ = reshape(xs, :, 1)
@@ -73,10 +76,12 @@ end
 """
 Predict output values for some new input values
 """
-function predict_ys(f_vec, noise::Float64,
+@gen (static) function predict_ys(f_vec, noise::Float64,
                     xs::Vector{Point2d}, ys::Vector{Float64},
                     new_xs::Vector{Point2d})
     (conditional_mu, conditional_cov_matrix) = compute_predictive(
         f_vec, noise, xs, ys, new_xs)
-    mvnormal(conditional_mu, conditional_cov_matrix)
+    result ~ mvnormal(conditional_mu, conditional_cov_matrix)
+
+    return result
 end

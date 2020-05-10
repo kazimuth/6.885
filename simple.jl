@@ -7,6 +7,7 @@ using AbstractPlotting
 using GeometryBasics
 using Colors
 using ColorSchemes
+using Statistics
 
 include("simulation.jl")
 include("gp.jl")
@@ -114,7 +115,7 @@ end
     forces = grids_to_vec_grid(centers, force_xs, force_ys, bounds, bounds, res, res)
 
     ## Noise in velocity / position observations
-    observe_noise = width / 100.0
+    observe_noise = width / 500.0
 
     ## Sample a bunch of masses, compute their paths, then observe their
     ## positions
@@ -213,8 +214,132 @@ function simple_mcmc(constraints :: Gen.ChoiceMap, args :: Tuple; computation = 
     trace, weights
 end
 
+"""Uses Welford's algorithm to compute the mean and variance of a sequence in
+constant memory, in a numerically stable manner.
 
-##
+- mean accumulates the mean of the entire dataset
+- M2 aggregates the squared distance from the mean
+- count aggregates the number of samples seen so far
+
+See: https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance
+"""
+struct RunningStats{T}
+    count :: Int64
+    mean :: T
+    M2 :: T
+end
+function RunningStats{T}() where T
+    RunningStats(0, T(0), T(0))
+end
+
+"""Update the statistics."""
+function update(s :: RunningStats{T}, v :: T) :: RunningStats{T} where {T}
+    (count, mean, M2) = s.count, s.mean, s.M2
+    count += 1
+    # avoid errors w/ vectors, this is supposed to be elementwise anyway
+    delta = v .- mean
+    mean += delta ./ count
+    delta2 = v .- mean
+    M2 += delta .* delta2
+    return RunningStats(count, mean, M2)
+end
+
+"""Compute the mean and variance."""
+function complete(s :: RunningStats{T}) :: Tuple{T, T} where {T}
+    (count, mean, M2) = s.count, s.mean, s.M2
+    if count < 2
+        (T(NaN), T(NaN))
+    else
+       (mean, M2 / count)
+    end
+end
+
+@testset "running stats" begin
+    s = RunningStats{Float64}()
+    a,b = complete(s)
+    @test isnan(a)
+    @test isnan(b)
+
+    s = RunningStats{Float64}()
+    vs = 0.0:.039:12.3
+    for v in vs
+        s = update(s, v)
+    end
+    mean_, var_ = complete(s)
+    @test isapprox(mean_, mean(vs), atol=0.1)
+    @test isapprox(var_, var(vs), atol=0.1)
+end
+
+"""Uses second differences to compute observed accelerations at every point on a grid. Returns a list of observed forces
+at each location."""
+function second_differences(observations :: PositionArray, bounces :: Array{Vec2{Bounce}, 2}, masses :: Vector{Float64};
+        xres :: Int64, yres :: Int64, xrange :: Bounds, yrange :: Bounds, p :: ExtraParams) :: Grid{RunningStats{Vec2d}}
+
+    obs_forces = Grid(reshape([RunningStats{Vec2d}() for i in 1:xres*yres], xres, yres), xrange, yrange)
+
+    timesteps, n_particles = size(observations)
+    velocities = zeros(Vec2d, size(observations)) # TODO guess + link
+
+    for i in 1:n_particles
+        for t in 2:timesteps
+            pos = observations[t-1, i]
+            vel = velocities[t-1, i]
+            new_pos = observations[t, i]
+            bounce = bounces[t, i]
+
+            nvx, ax = invert_step_dim(pos[1], vel[1], new_pos[1], bounce[1], xrange, p)
+            nvy, ay = invert_step_dim(pos[2], vel[2], new_pos[2], bounce[2], yrange, p)
+
+            velocities[t, i] = Vec2d(nvx, nvy)
+            acc = Vec2d(ax, ay)
+            F = acc * masses[i]
+
+            I = real_to_index(obs_forces, pos[1], pos[2])
+            obs_forces.values[I] = update(obs_forces.values[I], F)
+        end
+    end
+
+    obs_forces
+end
+
+@testset "second differences" begin
+    n = 12
+    mm = [1.0 for i in 1:n]
+    p = ExtraParams(1.0/24, 0.9)
+    tt = Gen.simulate(force_model, (1.0, 10, n, 0.1, 48, p))
+
+    gg = read_grid(tt)
+    pp, bb = read_true_positions_bounces(tt)
+
+    ff = second_differences(pp, bb, mm, xres=10, yres=10, xrange=(0.0, 1.0), yrange=(0.0, 1.0), p=p)
+
+    @test sum([z.count for z in ff.values]) == length(pp[2:end, :])
+
+    has_nonzero = false
+    for I in CartesianIndices(ff.values)
+        mean_, var_ = complete(ff.values[I])
+        if !isnan(mean_)
+            has_nonzero = true
+            # we're using the true values so this should be the case
+            @assert isapprox(mean_, gg.values[I], atol=0.00001)
+        end
+    end
+    @test has_nonzero == true
+end
+
+
+function updateloop(f, s, goal_dt=1.0/24)
+    display(s)
+    pt = Base.time()
+    while length(s.current_screens) > 0
+        f()
+        ct = Base.time()
+        dt = ct - pt
+        pt = ct
+        sleep(max(0.0, goal_dt - dt))
+    end
+    println("done.")
+end
 
 ##
 
@@ -252,9 +377,7 @@ animate_record!(s, mm, pp, t, mass_scale=0.02, colormod=c -> RGBA(c, .5))
 # false positions, high alpha
 animate_record!(s, mm, oo, t, mass_scale=0.02)
 
-display(s)
-while length(s.current_screens) > 0
-    sleep(1.0/24)
+updateloop(s) do
     t[] = (t[] % size(pp, 1)) + 1
 end
 println("done.")
@@ -300,174 +423,69 @@ simple_mcmc(cc, args, computation=1000, cb=function(trace)
         ll[i][:positions] = oo[:, i]
     end
     ss[:positions] = oo[1, :]
-    sleep(0.001)
+    sleep(0.0)
 end)
 
 ##
 
-ll[1][:positions]
+# ~~ observed forces ~~
+r = 10
+w = 1.0
+p = ExtraParams(1.0/24, 0.9)
+n = 50
+mm = [1.0 for i in 1:n]
+tt = Gen.simulate(force_model, (w, r, n, 0.1, 48, p))
+gg = read_grid(tt)
+pp, bb = read_true_positions_bounces(tt)
+oo = read_observations(tt)
 
-
-
-##
-
-typeof(ll[1])
-
-
-
-##
-
-function denoise_curves(record :: SimulationRecord) :: SimulationRecord
-    # TODO
-    record
-end
-
-function second_differences(record :: SimulationRecord)
-    n, timesteps = size(record.snapshots)
-
-    # since we know the exact euler-integral form of the input simulation,
-    # we can invert it algebraically (assuming no noise)
-
-    # known: all ps, v[1]
-    # v_ = (v[i-1] + dt*F[p[i-1]]/mass) * friction
-    # p_ = p[i-1] + v[i] * dt
-    # p[i], v[i] = clipflip(p_, v_)
-
-    # to solve:
-    # p_, v_ = inv_clipflip(p[i], v[i])
-    # v_ = (p[i] - p[i-1]) / dt
-    # p_ = (v[i]/friction - v[i-1]) * (mass/dt)
-
-
-    # instead of directly setting forces, we add to the observations at
-    # their locations.
-
-    dt = record.dt
-    friction = record.friction
-    snapshots = record.snapshots
-
-    # note: difference from previous timestep;
-    # first timestep is 0s
-    vels = zeros(Vec2d, n, timesteps)
-    observed_forces = Grid([[] for v in record.forces.values],
-        record.forces.xrange,
-        record.forces.yrange)
-    for i in 2:timesteps
-        for j in 1:n
-            vels[j, i] = (snapshots[j, i].pos - snapshots[j, i-1].pos) / dt
-
-            F = vels[j, i]/friction - vels[j, i-1]
-        end
-    end
-
-    # again, first timestep is 0s
-    accs = zeros(Vec2d, n, timesteps)
-    for step in 1:timesteps-1
-        for i in 1:n
-            vels[i, step+1] = record.snapshots[i, step+1].pos -
-                record.snapshots[i, step]
-        end
-    end
-
-    # TODO convert to running?
-
-
-end
-
-
-real_trace = Gen.simulate(force_model, (10, 1.0, 0.1, 20, 48, 1.0/24.0, 0.9))
-@time trace, _ = do_inference((10, 1.0, 0.1, 20, 48, 1.0/24.0, 0.9), real_trace.retval.snapshots, computation=10)
-
-second_differences(trace)
-##
-
-StaticChoiceMap
-
-
-##
-
-real_trace = Gen.simulate(force_model, (10, 1.0, 0.1, 20, 48, 1.0/24.0, 0.9))
-@time trace, probs = do_inference((10, 1.0, 0.1, 20, 48, 1.0/24.0, 0.9), real_trace.retval.snapshots, computation=10)
-
-
-
-##
-
-##
-
-real_trace[:noise], trace[:noise]
-
-
-##
-
-plot(probs)
-
-##
-
-probs
-
-##
-
-args = (10, 1.0, 0.1, 3, 24, 1.0/24.0, 0.9)
-real_trace = Gen.simulate(force_model, args)
-scene = Scene(resolution=(1200, 1200), show_axis=false, show_grid=false, limits=AbstractPlotting.Rect(0.0, 0.0, 1.0, 1.0))
-
-draw_grid!(scene, real_trace.retval.force, arrowcolor=:lightgray)
-draw_grid!(scene, real_trace.retval.force, arrowcolor=:lightblue)
+s = Scene(resolution=(1200, 1200), show_axis=false, show_grid=false)
 t = Makie.Observable(1)
-animate_record!(scene, real_trace.retval, t, mass_scale=0.02)
-function update_t()
-    current = floor(Int64, Base.time() * 24 % args[5]) + 1
-    if current != t[]
-        t[] = current
+
+draw_grid!(s, gg, arrowcolor=:lightgray, linecolor=:lightgray)
+obs_grid = draw_grid!(s, map_grid(x -> Vec2d(0.0), Vec2d, gg), arrowcolor=:red, linecolor=:red)
+
+# true positions, low alpha
+animate_record!(s, mm, pp, t, mass_scale=0.02, colormod=c -> RGBA(c, .5))
+# false positions, high alpha
+animate_record!(s, mm, oo, t, mass_scale=0.02)
+
+function vizmean(s :: RunningStats{Vec2d}) :: Vec2d
+    mean_, var_ = complete(s)
+    if isnan(mean_)
+        Vec2d(0)
+    else
+        mean_
+    end
+end
+function vizvar(s :: RunningStats{Vec2d}) :: RGBA
+    mean_, var_ = complete(s)
+    if isnan(mean_)
+        RGBA(0.0, 0.0, 0.0, 0.0)
+    else
+        RGBA(1.0, 0.0, 0.0, clip(.5 * magnitude(mean_) / sqrt(magnitude(var_)), (0.0, 1.0)))
     end
 end
 
-display(scene)
+second_diffs_aot = [
+    second_differences(oo[1:t_, :], bb[1:t_, :], mm; xres=r, yres=r, xrange=(0.0, w), yrange=(0.0, w), p=p)
+    for t_ in 1:size(oo, 1)
+]
+diff_arrows_aot = [
+    [vizmean(s) / 24.0 for s in reshape(second_diff.values, :)]
+    for second_diff in second_diffs_aot
+]
 
-#plot(probs)
-
-##
-
-
-trace = Gen.simulate(force_model, args)
-@time trace, probs = do_inference(args, trace.retval.snapshots, computation=10000, length_scale=real_trace[:length_scale], noise=real_trace[:noise], cb=function(trace)
-    r = trace_to_record(trace)
-
-    directions = []
-    for I in CartesianIndices(r.force.values)
-        push!(directions, r.force.values[I] / 24)
-    end
-
-    scene[2][:directions] = directions
-
-    update_t()
-    sleep(0.001)
-end)
+updateloop(s) do
+    t[] = (t[] % size(pp, 1)) + 1
+    obs_grid[:directions][] = diff_arrows_aot[t[]]
+end
 
 ##
 
-cmap = make_choicemap(real_trace.retval.snapshots, length_scale=real_trace[:length_scale], noise=real_trace[:noise])
-trace, _ = Gen.generate(force_model, args, cmap)
-
-v = Gen.map_optimize(trace, select(:force_xs, :force_ys))
-
-scene = Scene(resolution=(1200, 1200), show_axis=false, show_grid=false, limits=AbstractPlotting.Rect(0.0, 0.0, 1.0, 1.0))
-draw_grid!(scene, real_trace.retval.force, arrowcolor=:lightgray)
-draw_grid!(scene, v.retval.force, arrowcolor=:lightblue)
-display(scene)
-
 ##
-
-lines
-
+#Profile.@profile zzz()
+#Profile.print(maxdepth=3, sortedby=:overhead)
+#Profile.clear()
+#
 ##
-trace = Gen.simulate(force_model, (10, 1.0, 0.1, 20, 48, 1.0/24.0, 0.9))
-@time trace, probs = do_inference((10, 1.0, 0.1, 20, 48, 1.0/24.0, 0.9), trace.retval.snapshots, computation=100)
-
-##
-
-# TODO: custom proposal for forces given known velocities
-# TODO: try moving initial point sampling before grid construction? + using a combinator?
-# TODO: sample dist using 2nd-differences +
-#           + prediction of nonexistent points from orig. code!

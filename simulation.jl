@@ -137,6 +137,15 @@ function map_grid(f,
     g
 end
 
+"""Map a function over the values of an existing grid."""
+function map_grid(f, T :: Type{_T}, g :: Grid) :: Grid{_T} where _T
+    m = Grid(zeros(T, size(g.values)...), g.xrange, g.yrange)
+    for I in CartesianIndices(g.values)
+        m.values[I] = f(g.values[I])
+    end
+    m
+end
+
 @testset "grids" begin
     g = Grid(zeros(3,2), (0.0, 1.5), (0.0, 1.0))
     g.values[1,1] = 11
@@ -164,6 +173,9 @@ end
 
     g = map_grid(identity, Point2d, (0.0, 3.0), (0.0, 1.0), 7, 13)
     @test all([g.values[I] == index_to_center(g, I[1], I[2]) for I in CartesianIndices(g.values)])
+
+    g = map_grid(x -> x * .1, Point2d, g)
+    @test all([g.values[I] == .1 * index_to_center(g, I[1], I[2]) for I in CartesianIndices(g.values)])
 end
 
 struct ExtraParams
@@ -207,7 +219,11 @@ Given pos, vel, bounds, new_pos, bounced_low, and bounced_high, you should be ab
     new_pos, new_vel, bounce
 end
 
-"""Solves for acc and new_vel given position, velocity, and whether the particle bounced."""
+"""Solves for (new_vel, acc) given position, velocity, and whether the particle bounced.
+Since we know the exact euler-integral form of the input simulation,
+we can invert it algebraically (assuming no noise).
+There's probably something smarter you could do for real data though.
+"""
 @inline function invert_step_dim(pos :: Float64, vel :: Float64, new_pos :: Float64,
     bounce :: Bounce, bounds :: Bounds, p :: ExtraParams) :: Tuple{Float64, Float64}
     if bounce == LOW
@@ -297,7 +313,7 @@ function animate_record!(scene, masses :: Vector{Float64}, positions :: Position
     scheme=ColorSchemes.rainbow, mass_scale = 0.05, colormod=identity)
     timesteps, n_particles = size(positions)
 
-    positions_ = lift(t -> positions[t, :], t)
+    positions_ = lift(t -> positions[t, :], t; typ=Vector{Vec2d})
     weights = masses .* mass_scale
     colors = map(i -> colormod(get(scheme, (i-1)/n_particles)), 1:n_particles)
     scatter!(scene, positions_, markersize=weights, color=colors)

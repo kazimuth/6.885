@@ -44,7 +44,7 @@ end
 """Given a scene, particle masses, particle positions, and a Makie.Observable timestep,
 render masses as circles. Modifying the timestep will update the resulting plot.
 Returns a scatterplot."""
-function animate_mass_paths!(scene, masses :: Vector{Float64}, positions :: PositionArray, t;
+function animate_particles!(scene, masses :: Vector{Float64}, positions :: PositionArray, t;
     scheme=ColorSchemes.rainbow, mass_scale = 0.05, colormod=identity)
     timesteps, n_particles = size(positions)
 

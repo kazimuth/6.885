@@ -42,9 +42,9 @@ end
 
     # Sample from the GP using a multivariate normal distribution with
     # the kernel-derived covariance matrix.
-    ys ~ mvnormal(zeros(length(xs)), cov_matrix)
+    vals ~ mvnormal(zeros(length(xs)), cov_matrix)
 
-    return ys
+    return vals
 end;
 
 """

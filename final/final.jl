@@ -9,6 +9,8 @@ include("simulation.jl")
 include("gp.jl")
 include("render.jl")
 
+##
+
 """Observes the position of a particle with noise."""
 @gen (static) function observe_position(position :: Point2d, noise :: Float64) :: Point2d
     x ~ Gen.normal(position[1], noise)
@@ -81,7 +83,14 @@ Gen.@load_generated_functions
 
 """Pull the sampled force grid out of a trace of our prior."""
 function read_grid(trace) :: Grid{Vec2d}
-    width, res, n_particles, force_scale, timesteps, p = Gen.get_args(trace)
+    args = Gen.get_args(trace)
+    if args[1] isa Gen.Trace
+        # this is a grid proposal; pull from its source trace
+        width, res, n_particles, force_scale, timesteps, p = Gen.get_args(args[1])
+    else
+        # this is a normal trace
+        width, res, n_particles, force_scale, timesteps, p = args
+    end
     bounds = (0.0, width)
     centers = grid_centers(bounds, bounds, res, res)
 
@@ -149,6 +158,19 @@ function add_observations!(constraints :: Gen.ChoiceMap, observations :: Positio
     end
 end
 
+@gen (static) function simple_mcmc_proposal(trace)
+    width, res, n_particles, force_scale, timesteps, p = Gen.get_args(trace)
+    bounds = (0.0, width)
+    centers = grid_centers(bounds, bounds, res, res)
+    noise = trace[:noise]
+    length_scale = trace[:length_scale]
+
+    force_xs ~ grid_model(centers, length_scale, noise)
+    force_ys ~ grid_model(centers, length_scale, noise)
+end
+
+Gen.@load_generated_functions
+
 """Run simple MCMC, updating only the force grid, with Gen's built-in proposal
 distribution for mvnormal."""
 function simple_mcmc(constraints :: Gen.ChoiceMap, args :: Tuple; computation = 100, cb=nothing)
@@ -160,7 +182,8 @@ function simple_mcmc(constraints :: Gen.ChoiceMap, args :: Tuple; computation = 
     weights = Float64[]
 
     for step in 1:computation
-        (trace, w) = metropolis_hastings(trace, select(:force_xs, :force_ys), check=true, observations=constraints)
+        #(trace, w) = metropolis_hastings(trace, select(:force_xs => :vals, :force_ys => :vals), check=true, observations=constraints)
+        (trace, w) = metropolis_hastings(trace, simple_mcmc_proposal, (), check=true, observations=constraints)
         if cb != nothing
             cb(trace, step)
         end
@@ -169,6 +192,7 @@ function simple_mcmc(constraints :: Gen.ChoiceMap, args :: Tuple; computation = 
 
     trace, weights
 end
+
 
 """Uses second differences to compute observed accelerations at every point on a grid. Returns a list of observed forces
 at each location."""
@@ -227,14 +251,15 @@ end
     @test has_nonzero == true
 end
 
-function condition_wacky(
+@gen function condition_wacky_and_sample(
     noise :: Float64,
     length_scale :: Float64,
     known_locs :: Vector{Point2d},
     known_means :: Vector{Float64},
     known_vars :: Vector{Float64},
     unknown_locs :: Vector{Point2d},
-    ) :: Tuple{Vector{Float64}, Matrix{Float64}}
+    inv_perm :: Vector{Int32}
+    ) :: Vector{Float64}
 
     @assert !any(isnan.(known_locs))
     @assert !any(isnan.(known_means))
@@ -244,9 +269,9 @@ function condition_wacky(
     unknown_cond_means, unknown_cond_cov = compute_predictive(
         make_cov_vectorized(length_scale), noise, known_locs, known_means, unknown_locs
     )
-    @assert !any(isnan.(unknown_cond_means)) "$unknown_cond_means"
-    @assert !any(isnan.(unknown_cond_cov)) "$unknown_cond_cov"
-
+#    @assert !any(isnan.(unknown_cond_means)) "$unknown_cond_means"
+#    @assert !any(isnan.(unknown_cond_cov)) "$unknown_cond_cov"
+#
     known_count = length(known_locs)
     unknown_count = length(unknown_locs)
     res = known_count + unknown_count
@@ -256,26 +281,36 @@ function condition_wacky(
     means[1:known_count] = known_means # observed
     means[known_count+1:end] = unknown_cond_means # inferred
 
-    @assert !any(isnan.(means))
+    #@assert !any(isnan.(means))
 
     # covariance matrix
     cov = zeros(res, res)
     # use measured variance for the observed part of the matrix.
     # this isn't technically inferred, but hey, we're in an MCMC proposal, anything goes.
-    cov[1:known_count, 1:known_count] = diagm(known_vars)
+    #cov[1:known_count, 1:known_count] = diagm(known_vars) * 0.01 #TODO is this causing problems?
+    cov[1:known_count, 1:known_count] = I(known_count) * noise * 0.1 # we're more confident about this
     # and use inferred covariance for the rest of the matrix.
-    cov[known_count+1:end, known_count+1:end] = unknown_cond_cov
+    cov[known_count+1:end, known_count+1:end] .= unknown_cond_cov
     # ignore the matrix corners, the two chunks don't interact.
 
-    @assert !any(isnan.(cov))
-    @assert issymmetric(cov)
+#    @assert !any(isnan.(cov))
+#    @assert issymmetric(cov)
+#    @assert isposdef(cov) "$cov"
+#
+    means_orig = means[inv_perm]
+    cov_orig = cov[inv_perm, inv_perm]
+
+    vals ~ mvnormal(means_orig, cov_orig)
 
     # return the full matrix
-    (means, cov)
+    return vals
 end
 
 @gen function second_diff_proposal(trace, observations, bounces)
-    width, res, n_particles, force_scale, timesteps, p = Gen.get_args(trace)
+    width, res, _, force_scale, _, p = Gen.get_args(trace)
+    # for visualization, allow mismatching size w/ trace
+    timesteps, n_particles = size(observations)
+
     masses = [1.0 for i in 1:n_particles]
 
     # get inferred scale properties
@@ -311,36 +346,28 @@ end
     @assert !any(isnan.(known_F_means_p)) "$F_means $(perm[1:known_count])"
 
     # force x component
-    Fx_means_p, Fx_cov_p = condition_wacky(
+    force_xs ~ condition_wacky_and_sample(
         noise,
         length_scale,
         known_locs_p,
         [F_mean[1] for F_mean in known_F_means_p],
         [F_var[1] for F_var in known_F_vars_p],
-        unknown_locs_p
+        unknown_locs_p,
+        inv_perm
         )
-    # un-permute to line up w/ original indices
-    Fx_means = Fx_means_p[inv_perm]
-    Fx_cov = Fx_cov_p[inv_perm, inv_perm]
-    # sample!
-    force_xs ~ mvnormal(Fx_means, Fx_cov)
 
     @assert !any(isnan.(force_xs))
 
     # force y component
-    Fy_means_p, Fy_cov_p = condition_wacky(
+    force_ys ~ condition_wacky_and_sample(
         noise,
         length_scale,
         known_locs_p,
         [F_mean[2] for F_mean in known_F_means_p],
         [F_var[2] for F_var in known_F_vars_p],
-        unknown_locs_p
+        unknown_locs_p,
+        inv_perm
         )
-    # un-permute to line up w/ original indices
-    Fy_means = Fy_means_p[inv_perm]
-    Fy_cov = Fy_cov_p[inv_perm, inv_perm]
-    # sample!
-    force_ys ~ mvnormal(Fy_means, Fy_cov)
 
     @assert !any(isnan.(force_ys))
 
@@ -361,27 +388,50 @@ end
 
 
 
-#"""Run simple MCMC, updating only the force grid, with our custom second-differences
-#proposal distribution."""
-#function simple_mcmc_second_diff(constraints :: Gen.ChoiceMap, args :: Tuple; computation = 100, cb=nothing)
-#    trace, _ = Gen.generate(force_model, args, constraints)
-#    if cb != nothing
-#        cb(trace, 0)
-#    end
-#
-#    weights = Float64[]
-#
-#    for step in 1:computation
-#        (trace, w) = metropolis_hastings(trace, select(:force_xs, :force_ys), check=true, observations=constraints)
-#        if cb != nothing
-#            cb(trace, step)
-#        end
-#        push!(weights, w)
-#    end
-#
-#    trace, weights
-#end
-#
+"""Run simple MCMC, updating only the force grid, with our custom second-differences
+proposal distribution."""
+function simple_mcmc_second_diff(constraints :: Gen.ChoiceMap, obs, bounces, args :: Tuple; computation = 100, cb=nothing)
+    trace, _ = Gen.generate(force_model, args, constraints)
+    if cb != nothing
+        cb(trace, 0)
+    end
+
+    weights = Float64[]
+
+    for step in 1:computation
+        (trace, w) = metropolis_hastings(trace, second_diff_proposal, (obs, bounces)) #, check=true, observations=constraints)
+        #(trace, w) = metropolis_hastings(trace, select(:force_xs, :force_ys)) #, check=true, observations=constraints)
+        if cb != nothing
+            cb(trace, step)
+        end
+        push!(weights, w)
+    end
+
+    trace, weights
+end
+
+@testset "basic mcmc second diff" begin
+    n = 3
+    w = 1.0
+    r = 10
+    cc = choicemap()
+    cc[:length_scale] = 0.1
+    cc[:noise] = 0.1
+    for i in 1:n
+        cc[:mass_paths => i => :initial_x] = uniform(0.0, w)
+        cc[:mass_paths => i => :initial_y] = uniform(0.0, w)
+    end
+
+    args = (w, r, n, 0.1, 48, ExtraParams(1.0/24, 0.9))
+    tt, _ = Gen.generate(force_model, args, cc)
+    pp, bb = read_true_positions_bounces(tt)
+    add_observations!(cc, pp) # note: we use noiseless recordings here
+
+    zz, _ = simple_mcmc_second_diff(cc, pp, bb, args, computation=2)
+    @test read_observations(zz) == pp
+end
+
+
 ##
 
 # ~~ static rendering ~~
@@ -530,11 +580,122 @@ end
 
 ##
 
+# ~~ second differences proposal visualization ~~
+
+r = 10
+w = 1.0
+p = ExtraParams(1.0/24, 0.9)
+n = 25
+mm = [1.0 for i in 1:n]
+tt = Gen.simulate(force_model, (w, r, n, 0.1, 48 * 3, p))
+gg = read_grid(tt)
+pp, bb = read_true_positions_bounces(tt)
+oo = read_observations(tt)
+
+s = Scene(resolution=(1200, 1200), show_axis=false, show_grid=false)
+t = Makie.Observable(1)
+
+#draw_grid!(s, gg, arrowcolor=:lightgray, linecolor=:lightgray)
+obs_grid = draw_grid!(s, map_grid(x -> Vec2d(0.0), Vec2d, gg), arrowcolor=:red, linecolor=:red)
+prop_grid = draw_grid!(s, map_grid(x -> Vec2d(0.0), Vec2d, gg), arrowcolor=:lightblue, linecolor=:lightblue)
+
+
+# true positions, low alpha
+animate_particles!(s, mm, pp, t, mass_scale=0.02, colormod=c -> RGBA(c, .5))
+# false positions, high alpha
+animate_particles!(s, mm, oo, t, mass_scale=0.02)
+
+function vizmean(s :: RunningStats{Vec2d}) :: Vec2d
+    mean_, var_ = complete(s)
+    if isnan(mean_)
+        Vec2d(0)
+    else
+        mean_
+    end
+end
+function vizvar(s :: RunningStats{Vec2d}) :: RGBA
+    mean_, var_ = complete(s)
+    if isnan(mean_)
+        RGBA(0.0, 0.0, 0.0, 0.0)
+    else
+        RGBA(1.0, 0.0, 0.0, clip(.5 * magnitude(mean_) / sqrt(magnitude(var_)), (0.0, 1.0)))
+    end
+end
+
+second_diffs_aot = [
+    second_differences(oo[1:t_, :], bb[1:t_, :], mm; xres=r, yres=r, xrange=(0.0, w), yrange=(0.0, w), p=p)
+    for t_ in 1:size(oo, 1)
+]
+diff_arrows_aot = [
+    [vizmean(s) / 24.0 for s in reshape(second_diff.values, :)]
+    for second_diff in second_diffs_aot
+]
+
+prop_grids_aot = [
+    #read_grid(Gen.simulate(simple_mcmc_proposal, (tt,)))
+    read_grid(Gen.simulate(second_diff_proposal, (tt, oo[1:t_, :], bb[1:t_, :])))
+    for t_ in 1:size(oo, 1)
+]
+prop_arrows_aot = [
+    [f / 24.0 for f in reshape(g.values, :)]
+    for g in prop_grids_aot
+]
+
+updateloop(s) do
+    t[] = (t[] % size(pp, 1)) + 1
+    obs_grid[:directions][] = diff_arrows_aot[t[]]
+    prop_grid[:directions][] = prop_arrows_aot[t[]]
+end
 
 
 ##
-#Profile.@profile zzz()
-#Profile.print(maxdepth=3, sortedby=:overhead)
-#Profile.clear()
-#
-##
+
+# ~~ mcmc w/ noisy paths, all other things fixed ~~
+
+n = 50
+w = 1.0
+r = 10
+cc = choicemap()
+cc[:length_scale] = 0.1
+cc[:noise] = 0.1
+for i in 1:n
+    cc[:mass_paths => i => :initial_x] = uniform(0.0, w)
+    cc[:mass_paths => i => :initial_y] = uniform(0.0, w)
+end
+
+args = (w, r, n, 0.1, 48, ExtraParams(1.0/24, 0.9))
+
+tt, _ = Gen.generate(force_model, args, cc)
+gg = read_grid(tt)
+oo = read_observations(tt)
+pp, bb = read_true_positions_bounces(tt)
+add_observations!(cc, pp) # note: we use noiseless recordings here
+
+mm = [1.0 for i in 1:n]
+
+s = Scene(resolution=(1200, 1200), show_axis=false, show_grid=false)
+
+guess_grid = draw_grid!(s, gg, arrowcolor=:lightblue, linecolor=:lightblue)
+draw_grid!(s, gg, arrowcolor=:lightgray, linecolor=:lightgray)
+
+draw_particle_paths!(s, mm, pp, mass_scale=0.01, colormod=c -> RGBA(c, .5))
+ll, ss = draw_particle_paths!(s, mm, pp .* 0.0, mass_scale=0.01)
+
+text!(s, "booting...", transparency=false, textsize=0.03, position=(0.0, w), align=(:left, :top))
+status = s[end]
+
+display(s)
+
+simple_mcmc_second_diff(cc, pp, bb, args, computation=1000, cb=debounce(s, function(trace, step)
+    gg = read_grid(trace)
+    guess_grid[:directions] = reshape(gg.values./24, :)
+
+    oo, _ = read_true_positions_bounces(trace)
+    for i in 1:size(oo, 2)
+        ll[i][:positions] = oo[:, i]
+    end
+    ss[:positions] = oo[1, :]
+    status[:text] = "mcmc step $step"
+end))
+
+# TODO check simulations of new proposal against old simulations?

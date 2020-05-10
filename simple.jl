@@ -5,13 +5,13 @@ using Gen
 using Makie
 using AbstractPlotting
 using GeometryBasics
+using Colors
 using ColorSchemes
 
 include("simulation.jl")
 include("gp.jl")
 
 ##
-
 
 function grid_centers(xrange :: Bounds, yrange :: Bounds, xres :: Int64, yres :: Int64) :: Vector{Point2d}
     reshape(map_grid(identity, Point2d, xrange, yrange, xres, yres).values, :)
@@ -129,36 +129,20 @@ end
 
 Gen.@load_generated_functions
 
-##
-
-trace = Gen.simulate(force_model, (1.0, 5, 3, 0.1, 24, ExtraParams(1.0/24, 0.9)))
-
-##
-
-trace[:length_scale]
-
-trace[:mass_paths => 1 => :initial_x]
-
-##
-
-trace[:mass_paths => 1 => :observations => 1]
-
-##
-
 """I could probably have named these data structures better..."""
 function read_grid(trace) :: Grid{Vec2d}
-    width, res, n_particles, force_scale, timesteps, p = trace.args
+    width, res, n_particles, force_scale, timesteps, p = Gen.get_args(trace)
     bounds = (0.0, width)
     centers = grid_centers(bounds, bounds, res, res)
 
-    grids_to_vec_grid(trace[:force_xs], trace[:force_ys])
+    grids_to_vec_grid(centers, trace[:force_xs], trace[:force_ys], bounds, bounds, res, res)
 end
 
 function read_observations(trace) :: PositionArray
-    width, res, n_particles, force_scale, timesteps, p = trace.args
+    width, res, n_particles, force_scale, timesteps, p = Gen.get_args(trace)
     observations = zeros(Point2d, timesteps, n_particles)
 
-    for i in 1:particles
+    for i in 1:n_particles
         for t in 1:timesteps
             observations[t, i] = trace[:mass_paths => i => :observations => t]
         end
@@ -168,115 +152,59 @@ function read_observations(trace) :: PositionArray
 end
 
 function read_true_positions_bounces(trace) :: Tuple{PositionArray, Array{Vec2{Bounce}}}
-    width, res, n_particles, force_scale, timesteps, p = trace.args
+    width, res, n_particles, force_scale, timesteps, p = Gen.get_args(trace)
     positions = zeros(Point2d, timesteps, n_particles)
-    bounces = zeros(Bounce, timesteps, n_particles)
+    bounces = zeros(Vec2{Bounce}, timesteps, n_particles)
 
-    for i in 1:particles
-        pp, bb = trace[:mass_paths => i ]
+    for i in 1:n_particles
+        pp, bb = trace[:mass_paths => i]
+        positions[:, i] = pp
+        bounces[:, i] = bb
+    end
+
+    positions, bounces
+end
+
+@testset "trace reading" begin
+    res = 5
+    n_particles = 3
+    timesteps = 24
+
+    trace = Gen.simulate(force_model, (1.0, res, n_particles, 0.1, timesteps, ExtraParams(1.0/24, 0.9)))
+    pp, bb = read_true_positions_bounces(trace)
+    @test size(pp, 1) == timesteps
+    @test size(pp, 2) == n_particles
+    @test size(pp) == size(bb)
+
+    oo = read_observations(trace)
+    @test size(oo) == size(bb)
+
+    gg = read_grid(trace)
+    @test size(gg.values) == (res, res)
+end
+
+
+function add_observations!(constraints :: Gen.ChoiceMap, observations :: PositionArray)
+    timesteps, n_particles = size(observations)
+    for i in 1:n_particles
         for t in 1:timesteps
-            observations[t, i] = trace[:mass_paths => i => :observations => t]
+            constraints[:mass_paths => i => :observations => t => :x] = observations[t, i][1]
+            constraints[:mass_paths => i => :observations => t => :y] = observations[t, i][2]
         end
     end
-
-    observations
 end
 
-##
-
-zero(Bounce)
-
-##
-
-"""
-trace = Gen.simulate(force_model, (10, 1.0, 0.1, 20, 48, 1.0/24.0, 0.9))
-
-r = trace_to_record(trace)
-
-
-##
-
-scene = Scene(resolution=(1200, 1200), show_axis=false, show_grid=false)
-
-draw_grid!(scene, r.force)
-#draw_mass_paths!(scene, r, mass_scale=0.01)
-draw_mass_paths!(scene, trace.retval, mass_scale=0.01)
-
-display(scene)
-
-##
-
-scene = Scene(resolution=(1600, 1600), show_axis=false, show_grid=false)
-
-t = Makie.Observable(1)
-animate_record!(scene, trace.retval, t, mass_scale=0.02)
-display(scene)
-while true
-    sleep(1.0/24)
-    t[] = (t[] % size(r.snapshots, 2)) + 1
-end
-
-
-##
-
-"""
-"""
-trace = Gen.simulate(force_model, (10, 1.0, 0.1, 20, 48, 1.0/24.0, 0.9))
-r = trace_to_record(trace)
-
-scene = Scene(resolution=(1200, 1200), show_axis=false, show_grid=false)
-draw_grid!(scene, r.force)
-display(scene)
-
-
-for i in 1:50
-    trace = Gen.simulate(force_model, (10, 1.0, 0.1, 20, 48, 1.0/24.0))
-    r = trace_to_record(trace)
-
-    directions = []
-    for I in CartesianIndices(r.force.values)
-        push!(directions, r.force.values[I] / 24)
+function simple_mcmc(constraints :: Gen.ChoiceMap, args :: Tuple; computation = 100, cb=nothing)
+    trace, _ = Gen.generate(force_model, args, constraints)
+    if cb != nothing
+        cb(trace)
     end
-
-    scene[end][:directions] = directions
-    sleep(1/5)
-end
-"""
-nothing
-
-
-##
-
-function make_choicemap(snapshots :: Array{Mass, 2}; length_scale=(), noise=())
-    cmap = Gen.choicemap()
-    if length_scale != ()
-        cmap[:length_scale] = length_scale
-    end
-    if noise != ()
-        cmap[:noise] = noise
-    end
-
-    n_particles, timesteps = size(snapshots)
-    for step in 1:timesteps
-        for i in 1:n_particles
-            cmap[(:px, i, step)] = snapshots[i, step].pos[1]
-            cmap[(:py, i, step)] = snapshots[i, step].pos[2]
-        end
-    end
-    cmap
-end
-
-function do_inference(args :: Tuple, snapshots :: Array{Mass, 2}; computation = 100, cb=nothing, length_scale=(), noise=())
-    cmap = make_choicemap(snapshots, length_scale=length_scale, noise=noise)
-    trace, _ = Gen.generate(force_model, args, cmap)
 
     weights = Float64[]
 
     for i in 1:computation
-        (trace, _) = metropolis_hastings(trace, select(:noise), check=true)
-        (trace, _) = metropolis_hastings(trace, select(:length_scale), check=true)
-        (trace, w) = metropolis_hastings(trace, select(:force_xs, :force_ys), check=true)
-        if cb != nothing && i % 1 == 0
+        (trace, w) = metropolis_hastings(trace, select(:force_xs, :force_ys), check=true, observations=constraints)
+        if cb != nothing
             cb(trace)
         end
         push!(weights, w)
@@ -284,6 +212,108 @@ function do_inference(args :: Tuple, snapshots :: Array{Mass, 2}; computation = 
 
     trace, weights
 end
+
+
+##
+
+##
+
+# ~~ static rendering ~~
+
+n = 12
+mm = [1.0 for i in 1:n]
+tt = Gen.simulate(force_model, (1.0, 10, n, 0.1, 48, ExtraParams(1.0/24, 0.9)))
+gg = read_grid(tt)
+pp, bb = read_true_positions_bounces(tt)
+
+s = Scene(resolution=(1200, 1200), show_axis=false, show_grid=false)
+draw_grid!(s, gg, arrowcolor=:lightgray, linecolor=:lightgray)
+draw_mass_paths!(s, mm, pp, mass_scale=0.01)
+display(s)
+
+
+##
+
+# ~~ dynamic rendering ~~
+
+n = 12
+mm = [1.0 for i in 1:n]
+tt = Gen.simulate(force_model, (1.0, 10, n, 0.1, 48, ExtraParams(1.0/24, 0.9)))
+gg = read_grid(tt)
+pp, _ = read_true_positions_bounces(tt)
+oo = read_observations(tt)
+
+s = Scene(resolution=(1200, 1200), show_axis=false, show_grid=false)
+t = Makie.Observable(1)
+
+draw_grid!(s, gg, arrowcolor=:lightgray, linecolor=:lightgray)
+# true positions, low alpha
+animate_record!(s, mm, pp, t, mass_scale=0.02, colormod=c -> RGBA(c, .5))
+# false positions, high alpha
+animate_record!(s, mm, oo, t, mass_scale=0.02)
+
+display(s)
+while length(s.current_screens) > 0
+    sleep(1.0/24)
+    t[] = (t[] % size(pp, 1)) + 1
+end
+println("done.")
+
+## ~~ mcmc w/ true paths, all other things fixed ~~
+
+n = 3
+w = 1.0
+r = 10
+cc = choicemap()
+cc[:length_scale] = 0.1
+cc[:noise] = 0.1
+for i in 1:n
+    cc[:mass_paths => i => :initial_x] = uniform(0.0, w)
+    cc[:mass_paths => i => :initial_y] = uniform(0.0, w)
+end
+
+args = (w, r, n, 0.1, 48, ExtraParams(1.0/24, 0.9))
+
+tt, _ = Gen.generate(force_model, args, cc)
+
+pp, _ = read_true_positions_bounces(tt)
+add_observations!(cc, pp) # note: we use noiseless recordings here
+
+mm = [1.0 for i in 1:n]
+
+s = Scene(resolution=(1200, 1200), show_axis=false, show_grid=false)
+
+guess_grid = draw_grid!(s, gg, arrowcolor=:lightblue, linecolor=:lightblue)
+draw_grid!(s, gg, arrowcolor=:lightgray, linecolor=:lightgray)
+
+draw_mass_paths!(s, mm, pp, mass_scale=0.01, colormod=c -> RGBA(c, .5))
+ll, ss = draw_mass_paths!(s, mm, pp .* 0.0, mass_scale=0.01)
+
+display(s)
+
+simple_mcmc(cc, args, computation=1000, cb=function(trace)
+    gg = read_grid(trace)
+    guess_grid[:directions] = reshape(gg.values./24, :)
+
+    oo, _ = read_true_positions_bounces(trace)
+    for i in 1:size(oo, 2)
+        ll[i][:positions] = oo[:, i]
+    end
+    ss[:positions] = oo[1, :]
+    sleep(0.001)
+end)
+
+##
+
+ll[1][:positions]
+
+
+
+##
+
+typeof(ll[1])
+
+
 
 ##
 
@@ -350,6 +380,8 @@ real_trace = Gen.simulate(force_model, (10, 1.0, 0.1, 20, 48, 1.0/24.0, 0.9))
 
 second_differences(trace)
 ##
+
+StaticChoiceMap
 
 
 ##

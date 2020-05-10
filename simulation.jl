@@ -290,32 +290,40 @@ function draw_grid!(scene, grid :: Grid{Vec2d}; scale=1/24, arrowsize=0.02, kwar
 
     arrows!(scene, points, directions; arrowsize=arrowsize, kwargs...)
 
-    scene
+    scene[end]
 end
 
 function animate_record!(scene, masses :: Vector{Float64}, positions :: PositionArray, t;
-    scheme=ColorSchemes.rainbow, mass_scale = 0.05)
+    scheme=ColorSchemes.rainbow, mass_scale = 0.05, colormod=identity)
     timesteps, n_particles = size(positions)
 
-    masses = lift(t -> positions[t, :], t)
+    positions_ = lift(t -> positions[t, :], t)
     weights = masses .* mass_scale
-    colors = map(i -> get(scheme, (i-1)/n_particles), 1:n_particles)
-    scatter!(scene, masses, markersize=weights, color=colors)
+    colors = map(i -> colormod(get(scheme, (i-1)/n_particles)), 1:n_particles)
+    scatter!(scene, positions_, markersize=weights, color=colors)
+
+    scene[end]
 end
 
 function draw_mass_paths!(scene, masses :: Vector{Float64}, positions :: PositionArray;
-    scheme=ColorSchemes.rainbow, mass_scale=0.05)
+    scheme=ColorSchemes.rainbow, mass_scale=0.05, colormod=identity)
     timesteps, n_particles = size(positions)
 
-    colors = map(i -> get(scheme, (i-1)/n_particles), 1:n_particles)
+    colors = map(i -> colormod(get(scheme, (i-1)/n_particles)), 1:n_particles)
+
+    lines = []
 
     for i in 1:n_particles
         lines!(scene, positions[:, i], color=colors[i], linewidth=2.0)
+        push!(lines, scene[end])
     end
 
     starts = positions[1, :]
     weights = masses .* mass_scale
+
     scatter!(scene, starts, color=colors, markersize=weights)
 
-    scene
+    scatter = scene[end]
+
+    lines, scatter
 end

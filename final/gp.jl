@@ -1,12 +1,8 @@
-#using Pkg
-#pkg"activate ."
-#
-using Gen
-using GeometryBasics
-using LinearAlgebra
+using Gen, LinearAlgebra
+include("basics.jl")
 
-Vec2d = Vec2{Float64}
-Point2d = Point2{Float64}
+
+##
 
 @dist gamma_bounded_below(shape, scale, bound) = gamma(shape, scale) + bound
 
@@ -23,6 +19,7 @@ function magnitude(p :: Vec2d)
     sqrt(p[1] * p[1] + p[2] * p[2])
 end
 
+"""2d exponentially decaying covariance kernel (w/ scalar output)."""
 function cov_vectorized(length_scale :: Float64, xs :: Vector{Point2d})
     xs_ = reshape(xs, :, 1)
     xs__ = reshape(xs, 1, :)
@@ -46,11 +43,10 @@ end
     return ys
 end;
 
-
 """
 Computes the conditional mean and covariance of a Gaussian process with prior mean zero
-and prior covariance function `f_vec`, conditioned on noisy observations
-`Normal(f(xs), noise * I) = ys`, evaluated at the points `new_xs`.
+and prior covariance function `f_vec`, conditioned on noisy (scalar) observations
+`Normal(f(xs), noise * I) = ys`, evaluated at the (vector) points `new_xs`.
 """
 function compute_predictive(f_vec, noise::Float64,
                             xs::Vector{Point2d}, ys::Vector{Float64},
@@ -77,7 +73,7 @@ function compute_predictive(f_vec, noise::Float64,
 end
 
 """
-Predict output values for some new input values
+Predict (scalar) output values for some new (vector) input values
 """
 function predict_ys(f_vec, noise::Float64,
                     xs::Vector{Point2d}, ys::Vector{Float64},

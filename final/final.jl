@@ -1,67 +1,13 @@
+# make sure we're in the right place
+cd(@__DIR__)
 using Pkg
-pkg"activate ."
+pkg"activate .."
 
-using Gen
-using Makie
-using AbstractPlotting
-using GeometryBasics
-using Colors
-using ColorSchemes
-using Statistics
-
+include("basics.jl")
+include("helpers.jl")
 include("simulation.jl")
 include("gp.jl")
-
-##
-
-function grid_centers(xrange :: Bounds, yrange :: Bounds, xres :: Int64, yres :: Int64) :: Vector{Point2d}
-    reshape(map_grid(identity, Point2d, xrange, yrange, xres, yres).values, :)
-end
-
-function grids_to_vec_grid(
-        centers :: Vector{Point2d},
-        xs :: Vector{Float64}, ys :: Vector{Float64},
-        xrange :: Bounds, yrange :: Bounds,
-        xres :: Int64, yres :: Int64,
-        ) :: Grid{Vec2d}
-    values = [Vec2d(xs[i], ys[i]) for i in 1:length(xs)]
-    result = Grid(reshape(values, xres, yres), xrange, yrange)
-
-    for i in 1:length(xs)
-        I = real_to_index(result, centers[i][1], centers[i][2])
-        @assert result.values[I][1] == xs[i]
-        @assert result.values[I][2] == ys[i]
-    end
-
-    result
-end
-
-
-function run_particle(initial_pos :: Point2d, initial_vel :: Vec2d, mass :: Float64;
-        forces :: Grid, timesteps :: Int64, p :: ExtraParams) :: Tuple{Vector{Point2d}, Vector{Vec2{Bounce}}}
-    positions = [initial_pos]
-    bounces = [Vec2(NONE, NONE)]
-
-    pos = initial_pos
-    vel = initial_vel
-
-    for t in 2:timesteps
-        pos, vel, bounce = step_particle(pos, vel, mass, forces=forces, p=p)
-        push!(positions, pos)
-        push!(bounces, bounce)
-    end
-
-    (positions, bounces)
-end
-
-@testset "run_particle" begin
-    ps, bs = run_particle(Point2d(0.5, 0.5), Vec2d(0.0, 0.0), 1.0,
-        forces=map_grid(x -> Vec2d(0.1, 0.1), Vec2d, (0., 1.), (0.1, 1.), 10, 10),
-        timesteps=48,
-        p=ExtraParams(1.0/24, 0.9))
-    @test size(ps, 1) == 48
-end
-
+include("render.jl")
 
 """Observes the position of a particle with noise."""
 @gen (static) function observe_position(position :: Point2d, noise :: Float64) :: Point2d
@@ -69,7 +15,6 @@ end
     y ~ Gen.normal(position[2], noise)
     return Point2d(x, y)
 end
-
 
 """
 Samples a particle, simulates its interaction with the grid, observes its position at every time step with noise,
@@ -92,6 +37,7 @@ and returns its TRUE positions and bounces. Note that observations are different
     return (true_positions, true_bounces)
 end
 
+"""Our full prior."""
 @gen (static) function force_model(
                           width :: Float64,
                           res :: Int64,
@@ -130,7 +76,7 @@ end
 
 Gen.@load_generated_functions
 
-"""I could probably have named these data structures better..."""
+"""Pull the sampled force grid out of a trace of our prior."""
 function read_grid(trace) :: Grid{Vec2d}
     width, res, n_particles, force_scale, timesteps, p = Gen.get_args(trace)
     bounds = (0.0, width)
@@ -139,6 +85,7 @@ function read_grid(trace) :: Grid{Vec2d}
     grids_to_vec_grid(centers, trace[:force_xs], trace[:force_ys], bounds, bounds, res, res)
 end
 
+"""Pull the *observed* (i.e. noisy) positions out of a trace of our prior."""
 function read_observations(trace) :: PositionArray
     width, res, n_particles, force_scale, timesteps, p = Gen.get_args(trace)
     observations = zeros(Point2d, timesteps, n_particles)
@@ -152,6 +99,10 @@ function read_observations(trace) :: PositionArray
     observations
 end
 
+"""Pull the true positions out of a trace of our prior.
+They are "true" in the sense that they aren't noisy; they follow deterministically
+from the chosen force field and starting particles. Note, however, those might not
+correspond to the force field in something you're observing!"""
 function read_true_positions_bounces(trace) :: Tuple{PositionArray, Array{Vec2{Bounce}}}
     width, res, n_particles, force_scale, timesteps, p = Gen.get_args(trace)
     positions = zeros(Point2d, timesteps, n_particles)
@@ -184,7 +135,7 @@ end
     @test size(gg.values) == (res, res)
 end
 
-
+"""Add observations (or non-noisy paths, they're the same type) to a choicemap."""
 function add_observations!(constraints :: Gen.ChoiceMap, observations :: PositionArray)
     timesteps, n_particles = size(observations)
     for i in 1:n_particles
@@ -195,6 +146,8 @@ function add_observations!(constraints :: Gen.ChoiceMap, observations :: Positio
     end
 end
 
+"""Run simple MCMC, updating only the force grid, with Gen's built-in proposal
+distribution for mvnormal."""
 function simple_mcmc(constraints :: Gen.ChoiceMap, args :: Tuple; computation = 100, cb=nothing)
     trace, _ = Gen.generate(force_model, args, constraints)
     if cb != nothing
@@ -213,7 +166,6 @@ function simple_mcmc(constraints :: Gen.ChoiceMap, args :: Tuple; computation = 
 
     trace, weights
 end
-
 
 """Uses second differences to compute observed accelerations at every point on a grid. Returns a list of observed forces
 at each location."""
@@ -240,7 +192,7 @@ function second_differences(observations :: PositionArray, bounces :: Array{Vec2
             F = acc * masses[i]
 
             I = real_to_index(obs_forces, pos[1], pos[2])
-            obs_forces.values[I] = update(obs_forces.values[I], F)
+            obs_forces.values[I] = update_stats(obs_forces.values[I], F)
         end
     end
 
@@ -272,27 +224,11 @@ end
     @test has_nonzero == true
 end
 
-##
 
 ##
 
-
-##
-
-vcat([1,2], [3,4])
-
-
-##
-
-function splitgrid()
-
-end
-
-
-@gen function second_diff_proposal(trace, bounces) :: ()
+@gen function second_diff_proposal(trace, observations, bounces) :: ()
     # the true position observations
-    observations = read_observations(trace)
-
     diffgrid = second_differences(observations, bounces, masses, xres, yres, xrange, yrange, p)
 
 #    ## Build grid
@@ -312,40 +248,6 @@ end
 end
 
 
-##
-
-
-function updateloop(f, s, goal_dt=1.0/24)
-    display(s)
-    pt = Base.time()
-    while length(s.current_screens) > 0
-        f()
-        ct = Base.time()
-        dt = ct - pt
-        pt = ct
-        sleep(max(0.0, goal_dt - dt))
-    end
-    println("done.")
-end
-
-
-function debounce(s, f, goal_dt=1.0/24)
-    pt = Base.time()
-    f_t_est = goal_dt
-    return function(args...)
-        if length(s.current_screens) == 0
-            throw(InterruptException())
-        end
-        current = Base.time()
-        if current + f_t_est >= pt + goal_dt
-            start = Base.time()
-            f(args...)
-            yield() # needed to let Makie draw stuff
-            dt = Base.time() - start
-            f_t_est = .9*f_t_est + .1*dt
-        end
-    end
-end
 
 ##
 
@@ -359,7 +261,7 @@ pp, bb = read_true_positions_bounces(tt)
 
 s = Scene(resolution=(1200, 1200), show_axis=false, show_grid=false)
 draw_grid!(s, gg, arrowcolor=:lightgray, linecolor=:lightgray)
-draw_mass_paths!(s, mm, pp, mass_scale=0.01)
+draw_particle_paths!(s, mm, pp, mass_scale=0.01)
 display(s)
 
 
@@ -379,16 +281,18 @@ t = Makie.Observable(1)
 
 draw_grid!(s, gg, arrowcolor=:lightgray, linecolor=:lightgray)
 # true positions, low alpha
-animate_record!(s, mm, pp, t, mass_scale=0.02, colormod=c -> RGBA(c, .5))
+animate_particles!(s, mm, pp, t, mass_scale=0.02, colormod=c -> RGBA(c, .5))
 # false positions, high alpha
-animate_record!(s, mm, oo, t, mass_scale=0.02)
+animate_particles!(s, mm, oo, t, mass_scale=0.02)
 
 updateloop(s) do
     t[] = (t[] % size(pp, 1)) + 1
 end
 println("done.")
 
-## ~~ mcmc w/ true paths, all other things fixed ~~
+##
+
+# ~~ mcmc w/ true paths, all other things fixed ~~
 
 n = 3
 w = 1.0
@@ -404,7 +308,7 @@ end
 args = (w, r, n, 0.1, 48, ExtraParams(1.0/24, 0.9))
 
 tt, _ = Gen.generate(force_model, args, cc)
-
+gg = read_grid(tt)
 pp, _ = read_true_positions_bounces(tt)
 add_observations!(cc, pp) # note: we use noiseless recordings here
 
@@ -415,8 +319,8 @@ s = Scene(resolution=(1200, 1200), show_axis=false, show_grid=false)
 guess_grid = draw_grid!(s, gg, arrowcolor=:lightblue, linecolor=:lightblue)
 draw_grid!(s, gg, arrowcolor=:lightgray, linecolor=:lightgray)
 
-draw_mass_paths!(s, mm, pp, mass_scale=0.01, colormod=c -> RGBA(c, .5))
-ll, ss = draw_mass_paths!(s, mm, pp .* 0.0, mass_scale=0.01)
+draw_particle_paths!(s, mm, pp, mass_scale=0.01, colormod=c -> RGBA(c, .5))
+ll, ss = draw_particle_paths!(s, mm, pp .* 0.0, mass_scale=0.01)
 
 text!(s, "booting...", transparency=false, textsize=0.03, position=(0.0, w), align=(:left, :top))
 status = s[end]
@@ -437,7 +341,8 @@ end))
 
 ##
 
-# ~~ observed forces ~~
+# ~~ observed forces, no inference ~~
+
 r = 10
 w = 1.0
 p = ExtraParams(1.0/24, 0.9)
@@ -455,9 +360,9 @@ draw_grid!(s, gg, arrowcolor=:lightgray, linecolor=:lightgray)
 obs_grid = draw_grid!(s, map_grid(x -> Vec2d(0.0), Vec2d, gg), arrowcolor=:red, linecolor=:red)
 
 # true positions, low alpha
-animate_record!(s, mm, pp, t, mass_scale=0.02, colormod=c -> RGBA(c, .5))
+animate_particles!(s, mm, pp, t, mass_scale=0.02, colormod=c -> RGBA(c, .5))
 # false positions, high alpha
-animate_record!(s, mm, oo, t, mass_scale=0.02)
+animate_particles!(s, mm, oo, t, mass_scale=0.02)
 
 function vizmean(s :: RunningStats{Vec2d}) :: Vec2d
     mean_, var_ = complete(s)

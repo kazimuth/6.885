@@ -23,7 +23,7 @@ function RunningStats{T}() where T
 end
 
 """Update the statistics."""
-function update(s :: RunningStats{T}, v :: T) :: RunningStats{T} where {T}
+function update_stats(s :: RunningStats{T}, v :: T) :: RunningStats{T} where {T}
     (count, mean, M2) = s.count, s.mean, s.M2
     count += 1
     # avoid errors w/ vectors, this is supposed to be elementwise anyway
@@ -53,7 +53,7 @@ end
     s = RunningStats{Float64}()
     vs = 0.0:.039:12.3
     for v in vs
-        s = update(s, v)
+        s = update_stats(s, v)
     end
     mean_, var_ = complete(s)
     @test isapprox(mean_, mean(vs), atol=0.1)

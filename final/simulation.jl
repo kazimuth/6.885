@@ -1,19 +1,4 @@
-#using Pkg
-#pkg"activate ."
-#
-using Test
-using Makie
-using AbstractPlotting
-using GeometryBasics
-using ColorSchemes
-
-"""Inclusive bounds."""
-Bounds = Tuple{Float64, Float64}
-
-"""Locations."""
-Vec2d = Vec2{Float64}
-Point2d = Point2{Float64}
-
+include("basics.jl")
 
 """A grid of values.
 Design:
@@ -178,6 +163,28 @@ end
     @test all([g.values[I] == .1 * index_to_center(g, I[1], I[2]) for I in CartesianIndices(g.values)])
 end
 
+function grid_centers(xrange :: Bounds, yrange :: Bounds, xres :: Int64, yres :: Int64) :: Vector{Point2d}
+    reshape(map_grid(identity, Point2d, xrange, yrange, xres, yres).values, :)
+end
+
+function grids_to_vec_grid(
+        centers :: Vector{Point2d},
+        xs :: Vector{Float64}, ys :: Vector{Float64},
+        xrange :: Bounds, yrange :: Bounds,
+        xres :: Int64, yres :: Int64,
+        ) :: Grid{Vec2d}
+    values = [Vec2d(xs[i], ys[i]) for i in 1:length(xs)]
+    result = Grid(reshape(values, xres, yres), xrange, yrange)
+
+    for i in 1:length(xs)
+        I = real_to_index(result, centers[i][1], centers[i][2])
+        @assert result.values[I][1] == xs[i]
+        @assert result.values[I][2] == ys[i]
+    end
+
+    result
+end
+
 struct ExtraParams
     dt :: Float64
     friction :: Float64
@@ -292,54 +299,28 @@ end
     @test bounce[2] == NONE
 end
 
-# indexed: [timestep, index]
-PositionArray = Array{Point2d, 2}
+"""Run a particle for a given number of timesteps."""
+function run_particle(initial_pos :: Point2d, initial_vel :: Vec2d, mass :: Float64;
+        forces :: Grid, timesteps :: Int64, p :: ExtraParams) :: Tuple{Vector{Point2d}, Vector{Vec2{Bounce}}}
+    positions = [initial_pos]
+    bounces = [Vec2(NONE, NONE)]
 
-function draw_grid!(scene, grid :: Grid{Vec2d}; scale=1/24, arrowsize=0.02, kwargs...)
-    points = Point2d[]
-    directions = Vec2d[]
+    pos = initial_pos
+    vel = initial_vel
 
-    for I in CartesianIndices(grid.values)
-        push!(points, index_to_center(grid, I[1], I[2]))
-        push!(directions, grid.values[I] * scale)
+    for t in 2:timesteps
+        pos, vel, bounce = step_particle(pos, vel, mass, forces=forces, p=p)
+        push!(positions, pos)
+        push!(bounces, bounce)
     end
 
-    arrows!(scene, points, directions; arrowsize=arrowsize, kwargs...)
-
-    scene[end]
+    (positions, bounces)
 end
 
-function animate_record!(scene, masses :: Vector{Float64}, positions :: PositionArray, t;
-    scheme=ColorSchemes.rainbow, mass_scale = 0.05, colormod=identity)
-    timesteps, n_particles = size(positions)
-
-    positions_ = lift(t -> positions[t, :], t; typ=Vector{Vec2d})
-    weights = masses .* mass_scale
-    colors = map(i -> colormod(get(scheme, (i-1)/n_particles)), 1:n_particles)
-    scatter!(scene, positions_, markersize=weights, color=colors)
-
-    scene[end]
-end
-
-function draw_mass_paths!(scene, masses :: Vector{Float64}, positions :: PositionArray;
-    scheme=ColorSchemes.rainbow, mass_scale=0.05, colormod=identity)
-    timesteps, n_particles = size(positions)
-
-    colors = map(i -> colormod(get(scheme, (i-1)/n_particles)), 1:n_particles)
-
-    lines = []
-
-    for i in 1:n_particles
-        lines!(scene, positions[:, i], color=colors[i], linewidth=2.0)
-        push!(lines, scene[end])
-    end
-
-    starts = positions[1, :]
-    weights = masses .* mass_scale
-
-    scatter!(scene, starts, color=colors, markersize=weights)
-
-    scatter = scene[end]
-
-    lines, scatter
+@testset "run_particle" begin
+    ps, bs = run_particle(Point2d(0.5, 0.5), Vec2d(0.0, 0.0), 1.0,
+        forces=map_grid(x -> Vec2d(0.1, 0.1), Vec2d, (0., 1.), (0.1, 1.), 10, 10),
+        timesteps=48,
+        p=ExtraParams(1.0/24, 0.9))
+    @test size(ps, 1) == 48
 end

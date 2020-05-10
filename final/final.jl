@@ -171,38 +171,18 @@ end
 
 Gen.@load_generated_functions
 
-"""Run simple MCMC, updating only the force grid, with Gen's built-in proposal
-distribution for mvnormal."""
-function simple_mcmc(constraints :: Gen.ChoiceMap, args :: Tuple; computation = 100, cb=nothing)
-    trace, _ = Gen.generate(force_model, args, constraints)
-    if cb != nothing
-        cb(trace, 0)
-    end
+"""Compute (velocities, forces) using naive second differences and bounce information.
+Returned arrays are indexed such that the velocities / forces were applied in the position on the corresponding timestep.
+The last timestep of forces is empty.
+"""
+function second_differences(observations :: PositionArray, bounces :: Matrix{Vec2{Bounce}}, masses :: Vector{Float64};
+    xrange :: Bounds, yrange :: Bounds, p :: ExtraParams) :: Tuple{Matrix{Vec2d}, Matrix{Vec2d}}
 
-    weights = Float64[]
-
-    for step in 1:computation
-        #(trace, w) = metropolis_hastings(trace, select(:force_xs => :vals, :force_ys => :vals), check=true, observations=constraints)
-        (trace, w) = metropolis_hastings(trace, simple_mcmc_proposal, (), check=true, observations=constraints)
-        if cb != nothing
-            cb(trace, step)
-        end
-        push!(weights, w)
-    end
-
-    trace, weights
-end
-
-
-"""Uses second differences to compute observed accelerations at every point on a grid. Returns a list of observed forces
-at each location."""
-function second_differences(observations :: PositionArray, bounces :: Array{Vec2{Bounce}, 2}, masses :: Vector{Float64};
-        xres :: Int64, yres :: Int64, xrange :: Bounds, yrange :: Bounds, p :: ExtraParams) :: Grid{RunningStats{Vec2d}}
-
-    obs_forces = Grid(reshape([RunningStats{Vec2d}() for i in 1:xres*yres], xres, yres), xrange, yrange)
+    # TODO: allow specifying initialization
+    velocities = zeros(Vec2d, size(observations))
+    forces = zeros(Vec2d, size(observations))
 
     timesteps, n_particles = size(observations)
-    velocities = zeros(Vec2d, size(observations)) # TODO guess + link
 
     for i in 1:n_particles
         for t in 2:timesteps
@@ -215,37 +195,67 @@ function second_differences(observations :: PositionArray, bounces :: Array{Vec2
             nvy, ay = invert_step_dim(pos[2], vel[2], new_pos[2], bounce[2], yrange, p)
 
             velocities[t, i] = Vec2d(nvx, nvy)
-            acc = Vec2d(ax, ay)
-            F = acc * masses[i]
-
-            I = real_to_index(obs_forces, pos[1], pos[2])
-            obs_forces.values[I] = update_stats(obs_forces.values[I], F)
+            forces[t, i] = Vec2d(ax, ay) * masses[i]
         end
     end
 
-    obs_forces
+    (velocities, forces)
 end
 
-@testset "second differences" begin
-    n = 12
-    mm = [1.0 for i in 1:n]
+"""Uses second differences to compute observed accelerations at every point on a grid. Returns a list of observed forces
+at each location."""
+function accumulate_grid(positions :: PositionArray, forces :: Matrix{Vec2d};
+        xres :: Int64, yres :: Int64, xrange :: Bounds, yrange :: Bounds) :: Grid{RunningStats{Vec2d}}
+    timesteps, n_particles = size(forces)
+
+    force_grid = Grid(reshape([RunningStats{Vec2d}() for i in 1:xres*yres], xres, yres), xrange, yrange)
+
+    for i in 1:n_particles
+        for t in 2:timesteps
+            pos = positions[t-1, i]
+            F = forces[t, i]
+            I = real_to_index(force_grid, pos[1], pos[2])
+            force_grid.values[I] = update_stats(force_grid.values[I], F)
+        end
+    end
+
+    force_grid
+end
+
+@testset "accumulate_grid" begin
+    n_particles = 12
+    masses = [1.0 for i in 1:n_particles]
     p = ExtraParams(1.0/24, 0.9)
-    tt = Gen.simulate(force_model, (1.0, 10, n, 0.1, 48, p))
+    timesteps = 48
+    res = 10
+    width = 1.0
+    bounds = (0.0, 1.0)
+    trace = Gen.simulate(force_model, (width, res, n_particles, 0.1, timesteps, p))
 
-    gg = read_grid(tt)
-    pp, bb = read_true_positions_bounces(tt)
+    true_grid = read_grid(trace)
+    positions, bounces = read_true_positions_bounces(trace)
 
-    ff = second_differences(pp, bb, mm, xres=10, yres=10, xrange=(0.0, 1.0), yrange=(0.0, 1.0), p=p)
+    vels, forces = second_differences(positions, bounces, masses, xrange=bounds, yrange=bounds, p=p)
+    for i in 1:n_particles
+        for t in 2:timesteps
+            if bounces[t, i] == NONE
+                @assert isapprox(vels[t, i], (positions[t, i] - positions[t-1, i]))
+                @assert isapprox(forces[t, i] / masses[i], vels[t, i] - vels[t-1, i])
+            end
+        end
+    end
 
-    @test sum([z.count for z in ff.values]) == length(pp[2:end, :])
+    forcegrid = accumulate_grid(positions, forces, xres=10, yres=10, xrange=(0.0, 1.0), yrange=(0.0, 1.0))
+
+    @test sum([z.count for z in forcegrid.values]) == length(positions[2:end, :])
 
     has_nonzero = false
-    for I in CartesianIndices(ff.values)
-        mean_, var_ = complete(ff.values[I])
+    for I in CartesianIndices(forcegrid.values)
+        mean_, var_ = complete(forcegrid.values[I])
         if !isnan(mean_)
             has_nonzero = true
             # we're using the true values so this should be the case
-            @assert isapprox(mean_, gg.values[I], atol=0.00001)
+            @assert isapprox(mean_, true_grid.values[I], atol=0.00001) "$mean_ $(true_grid.values[I])"
         end
     end
     @test has_nonzero == true
@@ -287,11 +297,15 @@ end
     cov = zeros(res, res)
     # use measured variance for the observed part of the matrix.
     # this isn't technically inferred, but hey, we're in an MCMC proposal, anything goes.
-    #cov[1:known_count, 1:known_count] = diagm(known_vars) * 0.01 #TODO is this causing problems?
-    cov[1:known_count, 1:known_count] = I(known_count) * noise * 0.1 # we're more confident about this
+    cov[1:known_count, 1:known_count] = diagm((known_vars .* .1) .+ eps()) # ensure positive definite
+    #cov[1:known_count, 1:known_count] = I(known_count) * noise * 0.1 # we're more confident about this
     # and use inferred covariance for the rest of the matrix.
     cov[known_count+1:end, known_count+1:end] .= unknown_cond_cov
     # ignore the matrix corners, the two chunks don't interact.
+
+    # TODO undebug
+    #means[known_count+1:end] .= 0.0
+    #cov[:, :] .= I(res) .* eps()
 
 #    @assert !any(isnan.(cov))
 #    @assert issymmetric(cov)
@@ -300,13 +314,15 @@ end
     means_orig = means[inv_perm]
     cov_orig = cov[inv_perm, inv_perm]
 
+    @assert isposdef(cov_orig)
+
     vals ~ mvnormal(means_orig, cov_orig)
 
     # return the full matrix
     return vals
 end
 
-@gen function second_diff_proposal(trace, observations, bounces)
+@gen function second_diff_proposal(trace, observations, bounces, smooth)
     width, res, _, force_scale, _, p = Gen.get_args(trace)
     # for visualization, allow mismatching size w/ trace
     timesteps, n_particles = size(observations)
@@ -317,15 +333,23 @@ end
     length_scale = trace[:length_scale]
     noise = trace[:noise]
 
+    bounds = (0.0, width)
+
+    times = range(0.0, length=timesteps, step=p.dt)
+
+    _, forces = second_differences(observations, bounces, masses, xrange=bounds, yrange=bounds, p=p)
+
+    forces[2:end, :] = smooth(times[2:end], forces[2:end, :])
+
     # figure out where we've seen particles accelerate
-    diffgrid = second_differences(observations, bounces, masses,
-        xres=res, yres=res, xrange=(0.0, width), yrange=(0.0, width), p=p)
+    F_grid = accumulate_grid(observations, forces,
+        xres=res, yres=res, xrange=bounds, yrange=bounds)
 
     # get vectors of position / observed value
-    Is = reshape(CartesianIndices(diffgrid.values), :)
-    locs = [index_to_center(diffgrid, I[1], I[2]) for I in Is]
-    F_means = [complete(diffgrid.values[I])[1] for I in Is]
-    F_vars = [complete(diffgrid.values[I])[2] for I in Is]
+    Is = reshape(CartesianIndices(F_grid.values), :)
+    locs = [index_to_center(F_grid, I[1], I[2]) for I in Is]
+    F_means = [complete(F_grid.values[I])[1] for I in Is]
+    F_vars = [complete(F_grid.values[I])[2] for I in Is]
 
     # whether we've seen anything for a location or not
     known_mask = (x -> !isnan(x)).(F_means)
@@ -373,24 +397,23 @@ end
 
 end
 
+"""Apply no smoothing."""
+nosmooth(ts, Fs) = Fs
 
 @testset "basic second differences proposal" begin
     n = 3
-    tt = Gen.simulate(force_model, (1.0, 4, n, 0.1, 5, ExtraParams(1.0/24, 0.9)))
+    trace = Gen.simulate(force_model, (1.0, 4, n, 0.1, 5, ExtraParams(1.0/24, 0.9)))
 
-    pp, bb = read_true_positions_bounces(tt)
+    pp, bb = read_true_positions_bounces(trace)
 
-    zz = Gen.simulate(second_diff_proposal, (tt, pp, bb))
+    zz = Gen.simulate(second_diff_proposal, (trace, pp, bb, nosmooth))
 
     @test size(zz[:force_xs]) == (4*4,)
     @test size(zz[:force_ys]) == (4*4,)
 end
 
-
-
-"""Run simple MCMC, updating only the force grid, with our custom second-differences
-proposal distribution."""
-function simple_mcmc_second_diff(constraints :: Gen.ChoiceMap, obs, bounces, args :: Tuple; computation = 100, cb=nothing)
+"""Run simple MCMC, with everything fixed except the force grid, and a custom proposal distribution."""
+function simple_mcmc(constraints :: Gen.ChoiceMap, prop, prop_args, args :: Tuple; computation = 100, cb=nothing)
     trace, _ = Gen.generate(force_model, args, constraints)
     if cb != nothing
         cb(trace, 0)
@@ -399,7 +422,7 @@ function simple_mcmc_second_diff(constraints :: Gen.ChoiceMap, obs, bounces, arg
     weights = Float64[]
 
     for step in 1:computation
-        (trace, w) = metropolis_hastings(trace, second_diff_proposal, (obs, bounces)) #, check=true, observations=constraints)
+        (trace, w) = metropolis_hastings(trace, prop, prop_args) #, check=true, observations=constraints)
         #(trace, w) = metropolis_hastings(trace, select(:force_xs, :force_ys)) #, check=true, observations=constraints)
         if cb != nothing
             cb(trace, step)
@@ -411,26 +434,89 @@ function simple_mcmc_second_diff(constraints :: Gen.ChoiceMap, obs, bounces, arg
 end
 
 @testset "basic mcmc second diff" begin
-    n = 3
-    w = 1.0
-    r = 10
+    n_particles = 3
+    width = 1.0
+    res = 10
     cc = choicemap()
     cc[:length_scale] = 0.1
     cc[:noise] = 0.1
-    for i in 1:n
-        cc[:mass_paths => i => :initial_x] = uniform(0.0, w)
-        cc[:mass_paths => i => :initial_y] = uniform(0.0, w)
+    for i in 1:n_particles
+        cc[:mass_paths => i => :initial_x] = uniform(0.0, width)
+        cc[:mass_paths => i => :initial_y] = uniform(0.0, width)
     end
 
-    args = (w, r, n, 0.1, 48, ExtraParams(1.0/24, 0.9))
-    tt, _ = Gen.generate(force_model, args, cc)
-    pp, bb = read_true_positions_bounces(tt)
-    add_observations!(cc, pp) # note: we use noiseless recordings here
+    args = (width, res, n_particles, 0.1, 48, ExtraParams(1.0/24, 0.9))
+    trace, _ = Gen.generate(force_model, args, cc)
+    positions, bounces = read_true_positions_bounces(trace)
+    add_observations!(cc, positions) # note: we use noiseless recordings here
 
-    zz, _ = simple_mcmc_second_diff(cc, pp, bb, args, computation=2)
-    @test read_observations(zz) == pp
+    zz, _ = simple_mcmc(cc, simple_mcmc_proposal, (), args, computation=2)
+    @test read_observations(zz) == positions
 end
 
+CUBIC = [
+    t -> 1.0,
+    t -> t,
+    t -> t^2,
+    t -> t^3
+]
+# times: [t], values: [t, n], components: [c] -> [t, n]
+function least_squares(times :: AbstractVector{T}, values :: AbstractArray{V}, components=CUBIC) :: Array{V} where {T, V}
+    A = zeros(V, length(times), length(components))
+    for (i, c) in enumerate(components)
+        A[:, i] = c.(times)
+    end
+    p = A \ values
+    A * p
+end
+function vec_least_squares(times, values, components=CUBIC)
+    xs = least_squares(times, [v[1] for v in values], components)
+    ys = least_squares(times, [v[2] for v in values], components)
+    [Vec2d(x, y) for (x,y) in zip(xs, ys)]
+end
+
+@testset "vec_least_squares" begin
+    Random.seed!(0)
+
+    times = 1:.1:2pi
+    points = [Vec2d(sin(t) * 5, cos(t) * 5) for t in times]
+    points += .1 * randn(Vec2d, size(points))
+
+    psol = vec_least_squares(times, points)
+
+    @test mean(magnitude.(psol .- points)) < 1.0
+
+    multipoints = hcat(points, points, points) + randn(Vec2d, length(points), 3)
+    psols = vec_least_squares(times, multipoints)
+
+    @test size(psols) == (length(points), 3)
+end
+
+function hard_mcmc(constraints :: Gen.ChoiceMap, prop, prop_args, args :: Tuple; computation = 100, cb=nothing)
+    trace, _ = Gen.generate(force_model, args, constraints)
+    if cb != nothing
+        cb(trace, 0)
+    end
+
+    for step in 1:computation
+        (trace, _) = metropolis_hastings(trace, prop, prop_args) #, check=true, observations=constraints)
+        (trace, _) = metropolis_hastings(trace, select(:length_scale)) #, check=true, observations=constraints)
+        (trace, _) = metropolis_hastings(trace, select(:noise)) #, check=true, observations=constraints)
+
+        n_particles = Gen.get_args(trace)[3]
+        for i in 1:n_particles
+            (trace, _) = metropolis_hastings(trace, select(
+                :mass_paths => i => :initial_x,
+                :mass_paths => i => :initial_y
+            ))
+        end
+        if cb != nothing
+            cb(trace, step)
+        end
+    end
+
+    trace
+end
 
 ##
 
@@ -441,10 +527,62 @@ mm = [1.0 for i in 1:n]
 tt = Gen.simulate(force_model, (1.0, 10, n, 0.1, 48, ExtraParams(1.0/24, 0.9)))
 gg = read_grid(tt)
 pp, bb = read_true_positions_bounces(tt)
+oo = read_observations(tt)
 
 s = Scene(resolution=(1200, 1200), show_axis=false, show_grid=false)
 draw_grid!(s, gg, arrowcolor=:lightgray, linecolor=:lightgray)
-draw_particle_paths!(s, mm, pp, mass_scale=0.01)
+draw_particle_paths!(s, mm, pp, mass_scale=0.01, colormod=c -> RGBA(c, .5))
+draw_particle_paths!(s, mm, oo, mass_scale=0.01)
+display(s)
+
+##
+
+# ~~ vector least squares ~~
+
+times = 1:.1:2pi
+points = [Vec2d(sin(t) * 5, cos(t) * 5) for t in times]
+points += .1 * randn(Vec2d, size(points))
+s = scatter(Point2d.(points), resolution=(1200, 1200))
+psol = vec_least_squares(times, points)
+lines!(s, Point2d.(psol))
+
+
+##
+
+# ~~ static, second differences of noise ~~
+
+n = 12
+mm = [1.0 for i in 1:n]
+p = ExtraParams(1.0/24, 0.9)
+tt = Gen.simulate(force_model, (1.0, 10, n, 0.1, 48, p))
+gg = read_grid(tt)
+pp, bb = read_true_positions_bounces(tt)
+oo = read_observations(tt)
+
+s = Scene(resolution=(1200, 1200), show_axis=false, show_grid=false)
+draw_grid!(s, gg, arrowcolor=:lightgray, linecolor=:lightgray)
+#draw_particle_paths!(s, mm, pp, mass_scale=0.01, colormod=c -> RGBA(c, .5))
+#draw_particle_paths!(s, mm, pp, mass_scale=0.01)
+draw_particle_paths!(s, mm, oo, mass_scale=0.01)
+
+timesteps = size(oo, 1)
+
+true_vel, true_acc = second_differences(pp, bb, mm, xrange=(0.0, 1.0), yrange=(0.0, 1.0), p=p)
+noisy_vel, noisy_acc = second_differences(oo, bb, mm, xrange=(0.0, 1.0), yrange=(0.0, 1.0), p=p)
+times = range(0.0, length=timesteps, step=p.dt)
+smoothed_acc = vec_least_squares(times, noisy_acc)
+
+reduce_amt = 12
+
+colors = map(i -> get(ColorSchemes.rainbow, (i-1)/n), 1:n)
+for i in 1:n
+    #arrows!(s, pp[1:reduce_amt:end-1, i], true_acc[1:reduce_amt:end-1, i] / 24.0, arrowcolor=:red, linecolor=:red, arrowsize=0.01)
+    #arrows!(s, oo[1:reduce_amt:end-1, i], noisy_acc[1:reduce_amt:end-1, i] / 24.0, arrowcolor=:red, linecolor=:red, arrowsize=0.01)
+    arrows!(s, oo[1:reduce_amt:end-1, i], smoothed_acc[1:reduce_amt:end-1, i] / 24.0, arrowcolor=:red, linecolor=:red, arrowsize=0.01)
+    #arrows!(s, pp[1:end-1, i], noisy_vel[1:end-1, i] / 24.0, arrowcolor=colors[i], linecolor=colors[i], arrowsize=0.01)
+    #arrows!(s, pp[1:end-1, i], noisy_vel[1:end-1, i] / 24.0, arrowcolor=colors[i], linecolor=colors[i], arrowsize=0.01)
+end
+
 display(s)
 
 
@@ -471,7 +609,6 @@ animate_particles!(s, mm, oo, t, mass_scale=0.02)
 updateloop(s) do
     t[] = (t[] % size(pp, 1)) + 1
 end
-println("done.")
 
 ##
 
@@ -510,7 +647,7 @@ status = s[end]
 
 display(s)
 
-simple_mcmc(cc, args, computation=1000, cb=debounce(s, function(trace, step)
+simple_mcmc(cc, simple_mcmc_proposal, (), args, computation=1000, cb=debounce(s, function(trace, step)
     gg = read_grid(trace)
     guess_grid[:directions] = reshape(gg.values./24, :)
 
@@ -524,14 +661,15 @@ end))
 
 ##
 
-# ~~ observed forces, no inference ~~
+# ~~ second differences proposal visualization ~~
 
 r = 10
 w = 1.0
 p = ExtraParams(1.0/24, 0.9)
-n = 50
+n = 25
 mm = [1.0 for i in 1:n]
-tt = Gen.simulate(force_model, (w, r, n, 0.1, 48 * 3, p))
+timesteps = 48
+tt = Gen.simulate(force_model, (w, r, n, 0.1, timesteps, p))
 gg = read_grid(tt)
 pp, bb = read_true_positions_bounces(tt)
 oo = read_observations(tt)
@@ -541,6 +679,8 @@ t = Makie.Observable(1)
 
 draw_grid!(s, gg, arrowcolor=:lightgray, linecolor=:lightgray)
 obs_grid = draw_grid!(s, map_grid(x -> Vec2d(0.0), Vec2d, gg), arrowcolor=:red, linecolor=:red)
+prop_grid = draw_grid!(s, map_grid(x -> Vec2d(0.0), Vec2d, gg), arrowcolor=:blue, linecolor=:blue)
+#prop_grid[:visible] = false
 
 # true positions, low alpha
 animate_particles!(s, mm, pp, t, mass_scale=0.02, colormod=c -> RGBA(c, .5))
@@ -555,75 +695,13 @@ function vizmean(s :: RunningStats{Vec2d}) :: Vec2d
         mean_
     end
 end
-function vizvar(s :: RunningStats{Vec2d}) :: RGBA
-    mean_, var_ = complete(s)
-    if isnan(mean_)
-        RGBA(0.0, 0.0, 0.0, 0.0)
-    else
-        RGBA(1.0, 0.0, 0.0, clip(.5 * magnitude(mean_) / sqrt(magnitude(var_)), (0.0, 1.0)))
+
+second_diffs_aot = [begin
+        _, forces = second_differences(oo[1:t_, :], bb[1:t_, :], mm;  xrange=(0.0, w), yrange=(0.0, w), p=p)
+        times = range(0.0, length=t_, step=p.dt)
+        forces[2:end, :] = vec_least_squares(times[2:end], forces[2:end, :])
+        accumulate_grid(oo[1:t_, :], forces; xres=r, yres=r, xrange=(0.0, w), yrange=(0.0, w))
     end
-end
-
-second_diffs_aot = [
-    second_differences(oo[1:t_, :], bb[1:t_, :], mm; xres=r, yres=r, xrange=(0.0, w), yrange=(0.0, w), p=p)
-    for t_ in 1:size(oo, 1)
-]
-diff_arrows_aot = [
-    [vizmean(s) / 24.0 for s in reshape(second_diff.values, :)]
-    for second_diff in second_diffs_aot
-]
-
-updateloop(s) do
-    t[] = (t[] % size(pp, 1)) + 1
-    obs_grid[:directions][] = diff_arrows_aot[t[]]
-end
-
-##
-
-# ~~ second differences proposal visualization ~~
-
-r = 10
-w = 1.0
-p = ExtraParams(1.0/24, 0.9)
-n = 25
-mm = [1.0 for i in 1:n]
-tt = Gen.simulate(force_model, (w, r, n, 0.1, 48 * 3, p))
-gg = read_grid(tt)
-pp, bb = read_true_positions_bounces(tt)
-oo = read_observations(tt)
-
-s = Scene(resolution=(1200, 1200), show_axis=false, show_grid=false)
-t = Makie.Observable(1)
-
-#draw_grid!(s, gg, arrowcolor=:lightgray, linecolor=:lightgray)
-obs_grid = draw_grid!(s, map_grid(x -> Vec2d(0.0), Vec2d, gg), arrowcolor=:red, linecolor=:red)
-prop_grid = draw_grid!(s, map_grid(x -> Vec2d(0.0), Vec2d, gg), arrowcolor=:lightblue, linecolor=:lightblue)
-
-
-# true positions, low alpha
-animate_particles!(s, mm, pp, t, mass_scale=0.02, colormod=c -> RGBA(c, .5))
-# false positions, high alpha
-animate_particles!(s, mm, oo, t, mass_scale=0.02)
-
-function vizmean(s :: RunningStats{Vec2d}) :: Vec2d
-    mean_, var_ = complete(s)
-    if isnan(mean_)
-        Vec2d(0)
-    else
-        mean_
-    end
-end
-function vizvar(s :: RunningStats{Vec2d}) :: RGBA
-    mean_, var_ = complete(s)
-    if isnan(mean_)
-        RGBA(0.0, 0.0, 0.0, 0.0)
-    else
-        RGBA(1.0, 0.0, 0.0, clip(.5 * magnitude(mean_) / sqrt(magnitude(var_)), (0.0, 1.0)))
-    end
-end
-
-second_diffs_aot = [
-    second_differences(oo[1:t_, :], bb[1:t_, :], mm; xres=r, yres=r, xrange=(0.0, w), yrange=(0.0, w), p=p)
     for t_ in 1:size(oo, 1)
 ]
 diff_arrows_aot = [
@@ -632,8 +710,8 @@ diff_arrows_aot = [
 ]
 
 prop_grids_aot = [
-    #read_grid(Gen.simulate(simple_mcmc_proposal, (tt,)))
-    read_grid(Gen.simulate(second_diff_proposal, (tt, oo[1:t_, :], bb[1:t_, :])))
+    #read_grid(Gen.simulate(second_diff_proposal, (tt, oo[1:t_, :], bb[1:t_, :], nosmooth)))
+    read_grid(Gen.simulate(second_diff_proposal, (tt, oo[1:t_, :], bb[1:t_, :], vec_least_squares)))
     for t_ in 1:size(oo, 1)
 ]
 prop_arrows_aot = [
@@ -648,11 +726,12 @@ updateloop(s) do
 end
 
 
+
 ##
 
 # ~~ mcmc w/ noisy paths, all other things fixed ~~
 
-n = 50
+n = 10
 w = 1.0
 r = 10
 cc = choicemap()
@@ -686,7 +765,7 @@ status = s[end]
 
 display(s)
 
-simple_mcmc_second_diff(cc, pp, bb, args, computation=1000, cb=debounce(s, function(trace, step)
+simple_mcmc(cc, second_diff_proposal, (oo, bb, vec_least_squares), args, computation=1000, cb=debounce(s, function(trace, step)
     gg = read_grid(trace)
     guess_grid[:directions] = reshape(gg.values./24, :)
 
@@ -698,4 +777,61 @@ simple_mcmc_second_diff(cc, pp, bb, args, computation=1000, cb=debounce(s, funct
     status[:text] = "mcmc step $step"
 end))
 
-# TODO check simulations of new proposal against old simulations?
+##
+
+# ~~ mcmc: force + length_scale + noise
+
+n = 10
+w = 1.0
+r = 10
+cc = choicemap()
+#for i in 1:n
+#    cc[:mass_paths => i => :initial_x] = uniform(0.0, w)
+#    cc[:mass_paths => i => :initial_y] = uniform(0.0, w)
+#end
+#
+args = (w, r, n, 0.1, 48, ExtraParams(1.0/24, 0.9))
+
+tt, _ = Gen.generate(force_model, args, cc)
+gg = read_grid(tt)
+oo = read_observations(tt)
+pp, bb = read_true_positions_bounces(tt)
+add_observations!(cc, pp) # note: we use noiseless recordings here
+
+mm = [1.0 for i in 1:n]
+
+s = Scene(resolution=(1200, 1200), show_axis=false, show_grid=false)
+
+guess_grid = draw_grid!(s, gg, arrowcolor=:lightblue, linecolor=:lightblue)
+draw_grid!(s, gg, arrowcolor=:lightgray, linecolor=:lightgray)
+
+draw_particle_paths!(s, mm, pp, mass_scale=0.01, colormod=c -> RGBA(c, .5))
+ll, ss = draw_particle_paths!(s, mm, pp .* 0.0, mass_scale=0.01)
+
+text!(s, "booting...", transparency=false, textsize=0.03, position=(0.0, w), align=(:left, :top))
+status = s[end]
+
+display(s)
+
+hard_mcmc(cc, second_diff_proposal, (oo, bb, vec_least_squares), args, computation=1000, cb=debounce(s, function(trace, step)
+    gg = read_grid(trace)
+    guess_grid[:directions] = reshape(gg.values./24, :)
+
+    oo, _ = read_true_positions_bounces(trace)
+    for i in 1:size(oo, 2)
+        ll[i][:positions] = oo[:, i]
+    end
+    ss[:positions] = oo[1, :]
+    status[:text] = "mcmc step $step"
+
+    #sleep(0.1)
+end))
+
+
+##
+
+using Profile
+
+Profile.@profile hard_mcmc(cc, second_diff_proposal, (oo, bb, vec_least_squares), args, computation=100)
+Profile.print(noisefloor=2.0, mincount=10, maxdepth=3, sortedby=:overhead)
+Profile.clear()

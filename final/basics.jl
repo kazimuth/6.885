@@ -10,4 +10,4 @@ Point2d = Point2{Float64}
 Vec2d = Vec2{Float64}
 
 """An array of positions, indexed [timestep, i]"""
-PositionArray = Array{Vec2d, 2}
+PositionArray = Array{Point2d, 2}

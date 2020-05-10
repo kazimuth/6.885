@@ -214,61 +214,6 @@ function simple_mcmc(constraints :: Gen.ChoiceMap, args :: Tuple; computation = 
     trace, weights
 end
 
-"""Uses Welford's algorithm to compute the mean and variance of a sequence in
-constant memory, in a numerically stable manner.
-
-- mean accumulates the mean of the entire dataset
-- M2 aggregates the squared distance from the mean
-- count aggregates the number of samples seen so far
-
-See: https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance
-"""
-struct RunningStats{T}
-    count :: Int64
-    mean :: T
-    M2 :: T
-end
-function RunningStats{T}() where T
-    RunningStats(0, T(0), T(0))
-end
-
-"""Update the statistics."""
-function update(s :: RunningStats{T}, v :: T) :: RunningStats{T} where {T}
-    (count, mean, M2) = s.count, s.mean, s.M2
-    count += 1
-    # avoid errors w/ vectors, this is supposed to be elementwise anyway
-    delta = v .- mean
-    mean += delta ./ count
-    delta2 = v .- mean
-    M2 += delta .* delta2
-    return RunningStats(count, mean, M2)
-end
-
-"""Compute the mean and variance."""
-function complete(s :: RunningStats{T}) :: Tuple{T, T} where {T}
-    (count, mean, M2) = s.count, s.mean, s.M2
-    if count < 2
-        (T(NaN), T(NaN))
-    else
-       (mean, M2 / count)
-    end
-end
-
-@testset "running stats" begin
-    s = RunningStats{Float64}()
-    a,b = complete(s)
-    @test isnan(a)
-    @test isnan(b)
-
-    s = RunningStats{Float64}()
-    vs = 0.0:.039:12.3
-    for v in vs
-        s = update(s, v)
-    end
-    mean_, var_ = complete(s)
-    @test isapprox(mean_, mean(vs), atol=0.1)
-    @test isapprox(var_, var(vs), atol=0.1)
-end
 
 """Uses second differences to compute observed accelerations at every point on a grid. Returns a list of observed forces
 at each location."""
@@ -326,6 +271,48 @@ end
     end
     @test has_nonzero == true
 end
+
+##
+
+##
+
+
+##
+
+vcat([1,2], [3,4])
+
+
+##
+
+function splitgrid()
+
+end
+
+
+@gen function second_diff_proposal(trace, bounces) :: ()
+    # the true position observations
+    observations = read_observations(trace)
+
+    diffgrid = second_differences(observations, bounces, masses, xres, yres, xrange, yrange, p)
+
+#    ## Build grid
+#    # Sample a length scale
+#    length_scale ~ gamma_bounded_below(1, width/10, width * 0.01)
+#    # Sample a global noise level
+#    noise ~ gamma_bounded_below(1, force_scale, 0.01)
+#
+#    # Always use square grid
+#    bounds = (0.0, width)
+#    centers = grid_centers(bounds, bounds, res, res)
+#
+#    # Sample values
+#    force_xs ~ grid_model(centers, length_scale, noise)
+#    force_ys ~ grid_model(centers, length_scale, noise)
+    ()
+end
+
+
+##
 
 
 function updateloop(f, s, goal_dt=1.0/24)
@@ -456,7 +443,7 @@ w = 1.0
 p = ExtraParams(1.0/24, 0.9)
 n = 50
 mm = [1.0 for i in 1:n]
-tt = Gen.simulate(force_model, (w, r, n, 0.1, 48, p))
+tt = Gen.simulate(force_model, (w, r, n, 0.1, 48 * 3, p))
 gg = read_grid(tt)
 pp, bb = read_true_positions_bounces(tt)
 oo = read_observations(tt)
@@ -504,6 +491,8 @@ updateloop(s) do
 end
 
 ##
+
+
 
 ##
 #Profile.@profile zzz()

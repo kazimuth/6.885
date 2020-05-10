@@ -57,14 +57,17 @@ function compute_predictive(f_vec, noise::Float64,
                             new_xs::Vector{Point2d})
     n_prev = length(xs)
     n_new = length(new_xs)
+
     means = zeros(n_prev + n_new)
     #cov_matrix = compute_cov_matrix(covariance_fn, noise, vcat(xs, new_xs))
+
     cov_matrix = compute_cov_matrix_vectorized(f_vec, noise, vcat(xs, new_xs))
     cov_matrix_11 = cov_matrix[1:n_prev, 1:n_prev]
     cov_matrix_22 = cov_matrix[n_prev+1:n_prev+n_new, n_prev+1:n_prev+n_new]
     cov_matrix_12 = cov_matrix[1:n_prev, n_prev+1:n_prev+n_new]
     cov_matrix_21 = cov_matrix[n_prev+1:n_prev+n_new, 1:n_prev]
     @assert cov_matrix_12 == cov_matrix_21'
+
     mu1 = means[1:n_prev]
     mu2 = means[n_prev+1:n_prev+n_new]
     conditional_mu = mu2 + cov_matrix_21 * (cov_matrix_11 \ (ys - mu1))
@@ -76,7 +79,7 @@ end
 """
 Predict output values for some new input values
 """
-@gen (static) function predict_ys(f_vec, noise::Float64,
+function predict_ys(f_vec, noise::Float64,
                     xs::Vector{Point2d}, ys::Vector{Float64},
                     new_xs::Vector{Point2d})
     (conditional_mu, conditional_cov_matrix) = compute_predictive(

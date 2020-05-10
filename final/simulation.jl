@@ -167,6 +167,10 @@ function grid_centers(xrange :: Bounds, yrange :: Bounds, xres :: Int64, yres ::
     reshape(map_grid(identity, Point2d, xrange, yrange, xres, yres).values, :)
 end
 
+function grid_centers(grid :: Grid) :: Vector{Point2d}
+    reshape([index_to_center(grid, I[1], I[2]) for I in CartesianIndices(grid.values)])
+end
+
 function grids_to_vec_grid(
         centers :: Vector{Point2d},
         xs :: Vector{Float64}, ys :: Vector{Float64},

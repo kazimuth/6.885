@@ -67,7 +67,7 @@ The vector will permute a vector so that values with the mask set are all before
 values that don't.
 Returns the length of the "before" segment.
 """
-function split_permutation(mask :: Vector{Bool}) :: Tuple{Int32, Vector{Int32}}
+function split_permutation(mask :: AbstractVector{Bool}) :: Tuple{Int32, Vector{Int32}}
     before = Int32[]
     after = Int32[]
     for i in 1:length(mask)

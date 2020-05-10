@@ -28,7 +28,10 @@ and returns its TRUE positions and bounces. Note that observations are different
     initial_x ~ Gen.uniform(forces.xrange[1], forces.xrange[2])
     initial_y ~ Gen.uniform(forces.yrange[1], forces.yrange[2])
 
-    true_positions, true_bounces = run_particle(Point2d(initial_x, initial_y), Vec2d(0.0, 0.0), 1.0;
+    initial_vel = Vec2d(0.0, 0.0)
+    initial_mass = 1.0
+
+    true_positions, true_bounces = run_particle(Point2d(initial_x, initial_y), initial_vel, initial_mass;
         forces=forces, timesteps=timesteps, p=p)
 
     noises = [observe_noise for t in 1:timesteps]
@@ -224,31 +227,161 @@ end
     @test has_nonzero == true
 end
 
+function condition_wacky(
+    noise :: Float64,
+    length_scale :: Float64,
+    known_locs :: Vector{Point2d},
+    known_means :: Vector{Float64},
+    known_vars :: Vector{Float64},
+    unknown_locs :: Vector{Point2d},
+    ) :: Tuple{Vector{Float64}, Matrix{Float64}}
 
-##
+    @assert !any(isnan.(known_locs))
+    @assert !any(isnan.(known_means))
+    @assert !any(isnan.(known_vars))
 
-@gen function second_diff_proposal(trace, observations, bounces) :: ()
-    # the true position observations
-    diffgrid = second_differences(observations, bounces, masses, xres, yres, xrange, yrange, p)
+    # compute the means + covariance of the unknown region
+    unknown_cond_means, unknown_cond_cov = compute_predictive(
+        make_cov_vectorized(length_scale), noise, known_locs, known_means, unknown_locs
+    )
+    @assert !any(isnan.(unknown_cond_means)) "$unknown_cond_means"
+    @assert !any(isnan.(unknown_cond_cov)) "$unknown_cond_cov"
 
-#    ## Build grid
-#    # Sample a length scale
-#    length_scale ~ gamma_bounded_below(1, width/10, width * 0.01)
-#    # Sample a global noise level
-#    noise ~ gamma_bounded_below(1, force_scale, 0.01)
-#
-#    # Always use square grid
-#    bounds = (0.0, width)
-#    centers = grid_centers(bounds, bounds, res, res)
-#
-#    # Sample values
-#    force_xs ~ grid_model(centers, length_scale, noise)
-#    force_ys ~ grid_model(centers, length_scale, noise)
-    ()
+    known_count = length(known_locs)
+    unknown_count = length(unknown_locs)
+    res = known_count + unknown_count
+
+    # mean vector
+    means = zeros(res)
+    means[1:known_count] = known_means # observed
+    means[known_count+1:end] = unknown_cond_means # inferred
+
+    @assert !any(isnan.(means))
+
+    # covariance matrix
+    cov = zeros(res, res)
+    # use measured variance for the observed part of the matrix.
+    # this isn't technically inferred, but hey, we're in an MCMC proposal, anything goes.
+    cov[1:known_count, 1:known_count] = diagm(known_vars)
+    # and use inferred covariance for the rest of the matrix.
+    cov[known_count+1:end, known_count+1:end] = unknown_cond_cov
+    # ignore the matrix corners, the two chunks don't interact.
+
+    @assert !any(isnan.(cov))
+    @assert issymmetric(cov)
+
+    # return the full matrix
+    (means, cov)
+end
+
+@gen function second_diff_proposal(trace, observations, bounces)
+    width, res, n_particles, force_scale, timesteps, p = Gen.get_args(trace)
+    masses = [1.0 for i in 1:n_particles]
+
+    # get inferred scale properties
+    length_scale = trace[:length_scale]
+    noise = trace[:noise]
+
+    # figure out where we've seen particles accelerate
+    diffgrid = second_differences(observations, bounces, masses,
+        xres=res, yres=res, xrange=(0.0, width), yrange=(0.0, width), p=p)
+
+    # get vectors of position / observed value
+    Is = reshape(CartesianIndices(diffgrid.values), :)
+    locs = [index_to_center(diffgrid, I[1], I[2]) for I in Is]
+    F_means = [complete(diffgrid.values[I])[1] for I in Is]
+    F_vars = [complete(diffgrid.values[I])[2] for I in Is]
+
+    # whether we've seen anything for a location or not
+    known_mask = (x -> !isnan(x)).(F_means)
+
+    # make permutation to rearrange
+    known_count, perm = split_permutation(known_mask)
+    inv_perm = invert_permutation(perm)
+
+    # permute locs, split into known and unknown chunks
+    locs_p = locs[perm]
+    known_locs_p = locs_p[1:known_count]
+    unknown_locs_p = locs_p[known_count+1:end]
+
+    # permute our measurements, extract known chunks
+    known_F_means_p = F_means[perm[1:known_count]]
+    known_F_vars_p = F_vars[perm[1:known_count]]
+
+    @assert !any(isnan.(known_F_means_p)) "$F_means $(perm[1:known_count])"
+
+    # force x component
+    Fx_means_p, Fx_cov_p = condition_wacky(
+        noise,
+        length_scale,
+        known_locs_p,
+        [F_mean[1] for F_mean in known_F_means_p],
+        [F_var[1] for F_var in known_F_vars_p],
+        unknown_locs_p
+        )
+    # un-permute to line up w/ original indices
+    Fx_means = Fx_means_p[inv_perm]
+    Fx_cov = Fx_cov_p[inv_perm, inv_perm]
+    # sample!
+    force_xs ~ mvnormal(Fx_means, Fx_cov)
+
+    @assert !any(isnan.(force_xs))
+
+    # force y component
+    Fy_means_p, Fy_cov_p = condition_wacky(
+        noise,
+        length_scale,
+        known_locs_p,
+        [F_mean[2] for F_mean in known_F_means_p],
+        [F_var[2] for F_var in known_F_vars_p],
+        unknown_locs_p
+        )
+    # un-permute to line up w/ original indices
+    Fy_means = Fy_means_p[inv_perm]
+    Fy_cov = Fy_cov_p[inv_perm, inv_perm]
+    # sample!
+    force_ys ~ mvnormal(Fy_means, Fy_cov)
+
+    @assert !any(isnan.(force_ys))
+
+end
+
+
+@testset "basic second differences proposal" begin
+    n = 3
+    tt = Gen.simulate(force_model, (1.0, 4, n, 0.1, 5, ExtraParams(1.0/24, 0.9)))
+
+    pp, bb = read_true_positions_bounces(tt)
+
+    zz = Gen.simulate(second_diff_proposal, (tt, pp, bb))
+
+    @test size(zz[:force_xs]) == (4*4,)
+    @test size(zz[:force_ys]) == (4*4,)
 end
 
 
 
+#"""Run simple MCMC, updating only the force grid, with our custom second-differences
+#proposal distribution."""
+#function simple_mcmc_second_diff(constraints :: Gen.ChoiceMap, args :: Tuple; computation = 100, cb=nothing)
+#    trace, _ = Gen.generate(force_model, args, constraints)
+#    if cb != nothing
+#        cb(trace, 0)
+#    end
+#
+#    weights = Float64[]
+#
+#    for step in 1:computation
+#        (trace, w) = metropolis_hastings(trace, select(:force_xs, :force_ys), check=true, observations=constraints)
+#        if cb != nothing
+#            cb(trace, step)
+#        end
+#        push!(weights, w)
+#    end
+#
+#    trace, weights
+#end
+#
 ##
 
 # ~~ static rendering ~~

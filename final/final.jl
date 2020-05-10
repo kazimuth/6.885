@@ -9,7 +9,6 @@ include("simulation.jl")
 include("gp.jl")
 include("render.jl")
 
-##
 
 """Observes the position of a particle with noise."""
 @gen (static) function observe_position(position :: Point2d, noise :: Float64) :: Point2d
@@ -100,7 +99,7 @@ end
 """Pull the *observed* (i.e. noisy) positions out of a trace of our prior."""
 function read_observations(trace) :: PositionArray
     width, res, n_particles, force_scale, timesteps, p = Gen.get_args(trace)
-    observations = zeros(Point2d, timesteps, n_particles)
+    observations = Matrix{Point2d}(undef, timesteps, n_particles)
 
     for i in 1:n_particles
         for t in 1:timesteps
@@ -117,8 +116,8 @@ from the chosen force field and starting particles. Note, however, those might n
 correspond to the force field in something you're observing!"""
 function read_true_positions_bounces(trace) :: Tuple{PositionArray, Array{Vec2{Bounce}}}
     width, res, n_particles, force_scale, timesteps, p = Gen.get_args(trace)
-    positions = zeros(Point2d, timesteps, n_particles)
-    bounces = zeros(Vec2{Bounce}, timesteps, n_particles)
+    positions = Matrix{Point2d}(undef, timesteps, n_particles)
+    bounces = Matrix{Vec2{Bounce}}(undef, timesteps, n_particles)
 
     for i in 1:n_particles
         pp, bb = trace[:mass_paths => i]
@@ -179,10 +178,15 @@ function second_differences(observations :: PositionArray, bounces :: Matrix{Vec
     xrange :: Bounds, yrange :: Bounds, p :: ExtraParams) :: Tuple{Matrix{Vec2d}, Matrix{Vec2d}}
 
     # TODO: allow specifying initialization
-    velocities = zeros(Vec2d, size(observations))
-    forces = zeros(Vec2d, size(observations))
+    velocities = Matrix{Vec2d}(undef, size(observations))
+    forces = Matrix{Vec2d}(undef, size(observations))
 
     timesteps, n_particles = size(observations)
+
+    for i in 1:n_particles
+        velocities[1, i] = Vec2d(0.0, 0.0)
+        forces[1, i] = Vec2d(0.0, 0.0)
+    end
 
     for i in 1:n_particles
         for t in 2:timesteps
@@ -208,7 +212,7 @@ function accumulate_grid(positions :: PositionArray, forces :: Matrix{Vec2d};
         xres :: Int64, yres :: Int64, xrange :: Bounds, yrange :: Bounds) :: Grid{RunningStats{Vec2d}}
     timesteps, n_particles = size(forces)
 
-    force_grid = Grid(reshape([RunningStats{Vec2d}() for i in 1:xres*yres], xres, yres), xrange, yrange)
+    force_grid = Grid(zeros(RunningStats{Vec2d}, xres, yres), xrange, yrange)
 
     for i in 1:n_particles
         for t in 2:timesteps
@@ -529,7 +533,7 @@ gg = read_grid(tt)
 pp, bb = read_true_positions_bounces(tt)
 oo = read_observations(tt)
 
-s = Scene(resolution=(1200, 1200), show_axis=false, show_grid=false)
+s = Scene(resolution=(1600, 1600), show_axis=false, show_grid=false)
 draw_grid!(s, gg, arrowcolor=:lightgray, linecolor=:lightgray)
 draw_particle_paths!(s, mm, pp, mass_scale=0.01, colormod=c -> RGBA(c, .5))
 draw_particle_paths!(s, mm, oo, mass_scale=0.01)
@@ -781,7 +785,7 @@ end))
 
 # ~~ mcmc: force + length_scale + noise
 
-n = 10
+n = 20
 w = 1.0
 r = 10
 cc = choicemap()
@@ -790,7 +794,8 @@ cc = choicemap()
 #    cc[:mass_paths => i => :initial_y] = uniform(0.0, w)
 #end
 #
-args = (w, r, n, 0.1, 48, ExtraParams(1.0/24, 0.9))
+p = ExtraParams(1.0/24, 0.9)
+args = (w, r, n, 0.1, 48, p)
 
 tt, _ = Gen.generate(force_model, args, cc)
 gg = read_grid(tt)
@@ -800,7 +805,7 @@ add_observations!(cc, pp) # note: we use noiseless recordings here
 
 mm = [1.0 for i in 1:n]
 
-s = Scene(resolution=(1200, 1200), show_axis=false, show_grid=false)
+s = Scene(resolution=(1600, 1600), show_axis=false, show_grid=false)
 
 guess_grid = draw_grid!(s, gg, arrowcolor=:lightblue, linecolor=:lightblue)
 draw_grid!(s, gg, arrowcolor=:lightgray, linecolor=:lightgray)
@@ -830,8 +835,44 @@ end))
 
 ##
 
-using Profile
+n = 20
+w = 1.0
+r = 10
+cc = choicemap()
+#
+p = ExtraParams(1.0/24, 0.9)
+args = (w, r, n, 0.1, 48, p)
 
-Profile.@profile hard_mcmc(cc, second_diff_proposal, (oo, bb, vec_least_squares), args, computation=100)
-Profile.print(noisefloor=2.0, mincount=10, maxdepth=3, sortedby=:overhead)
-Profile.clear()
+tt, _ = Gen.generate(force_model, args, cc)
+oo = read_observations(tt)
+gg = read_grid(tt)
+pp, bb = read_true_positions_bounces(tt)
+add_observations!(cc, pp) # note: we use noiseless recordings here
+
+hard_mcmc(cc, second_diff_proposal, (oo, bb, vec_least_squares), args, computation=2)
+
+using ProfileSVG
+ProfileSVG.@profview hard_mcmc(cc, second_diff_proposal, (oo, bb, vec_least_squares), args, computation=100)
+
+##
+
+println(@code_native step_dim(1.0, 1.0, 1.0, (0.0, 1.0), p))
+
+##
+
+const __grid = gg
+const __p = p
+
+println(@code_native step_particle(Point2d(0.5, 0.5), Vec2d(0.5, 0.5), 1.0, __grid, __p))
+
+##
+
+println(@code_native sample_grid(gg, 1.0, 1.0))
+
+##
+
+println(@code_typed run_particle(Point2d(0.5, 0.5), Vec2d(0.5, 0.5), 1.0, forces=gg, timesteps=64, p=p))
+
+##
+println(@code_typed Array{Float64}(undef, 1))
+##

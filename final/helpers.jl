@@ -18,8 +18,11 @@ struct RunningStats{T}
     mean :: T
     M2 :: T
 end
-function RunningStats{T}() where T
+@inline function RunningStats{T}() where T
     RunningStats(0, T(0), T(0))
+end
+@inline function Base.zero(::Type{RunningStats{T}}) where T
+    RunningStats{T}()
 end
 
 """Update the statistics."""

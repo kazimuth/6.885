@@ -1,0 +1,33 @@
+#+TITLE: 6.885 Final Project: Inferring Invisible Force Fields using Gaussian Processes
+#+AUTHOR: James Gilles
+#+EMAIL: jhgilles@mit.edu
+#+DATE: 12 May 2020
+#+OPTIONS: tex:t latex:t
+#+STARTUP: latexpreview
+
+#+LATEX_CLASS: article
+#+LATEX_HEADER: \usepackage{url}
+#+LATEX_HEADER: \usepackage{mathtools}
+#+LATEX_HEADER: \usepackage{natbib}
+
+* Abstract
+  We specify a challenging inference problem involving non-observable force fields affecting particles moving in a 2d plane. We implement and evaluate a baseline solution using Gaussian Processes (TODO cite) in Gen [[citep:GenPaper]], and outline directions for future work.
+
+* Introduction
+
+* Related Work
+
+* Problem specification
+
+* Implementation & results
+  ...realized...
+
+* Results
+** TODO collect log-likelihoods
+
+* Future Work
+
+* Conclusion
+
+#+LATEX: \bibliography{finalwriteup}
+#+LATEX: \bibliographystyle{iclr2020conference}

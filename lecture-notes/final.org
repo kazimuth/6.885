@@ -37,14 +37,25 @@ $\log \frac{p(t, r; x)}{q(t; u, x) q(r; x, t)}$
 
    https://arxiv.org/pdf/2002.09309.pdf
 
-** TODO custom proposal distribution for forces
+
+** DONE custom proposal distribution for forces
+   CLOSED: [2020-05-10 Sun 16:32]
 *** TODO switch to AOS + per-dim
 *** TODO invertible step
 
-** TODO refactor arg vectors to save memory
-** TODO make initial position + velocity observations, use map combinator to accelerate piecewise inference
+** TODO cache cov matrix!
+
+** DONE make initial position + velocity observations, use map combinator to accelerate piecewise inference
+   CLOSED: [2020-05-10 Sun 16:32]
+
+** TODO infer w/ current bounces?
+** TODO masses
+** TODO compare speed with / without @gen (static)
+
 ** TODO try MAP gp?
 ** TODO try quadtree gp?
+
+
 
 * setup
   install julia from source

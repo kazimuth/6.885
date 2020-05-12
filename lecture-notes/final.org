@@ -5,6 +5,7 @@
 #+OPTIONS: tex:t latex:t
 #+STARTUP: latexpreview
 
+** DONE check format
   Given arguments x and assignment u (which is empty for the first form), sample $t \sim q(\cdot; u, x)$ and $r \sim q(\cdot; x, t)$, and return the trace
   $(x, t, r)$ . Also return the weight (weight):
 
@@ -57,8 +58,14 @@ $\log \frac{p(t, r; x)}{q(t; u, x) q(r; x, t)}$
 
 
 
+* readings
+** Sparse Gaussian Processes using Pseudo-inputs
+  http://www.gatsby.ucl.ac.uk/~snelson/SPGP_up.pdf
+
 * setup
   install julia from source
+
+
 
 
 * 4/16 meeting notes (Intuitive Physics Groups)
@@ -258,6 +265,7 @@ Best,
 Marco
 
 * Slides
+
 
 
 * Chamfer distance

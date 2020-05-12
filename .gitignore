@@ -11,3 +11,4 @@ arpack-ng
 *.out
 *.pdf
 *.toc
+*.xcf

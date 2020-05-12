@@ -522,12 +522,12 @@ function hard_mcmc(constraints :: Gen.ChoiceMap, prop, prop_args, args :: Tuple;
     end
 
     for step in 1:computation
-        (trace, _) = metropolis_hastings(trace, prop, prop_args, check=true, observations=constraints)
+        (trace, _) = metropolis_hastings(trace, prop, prop_args)#, check=true, observations=constraints)
 #
         n_particles = Gen.get_args(trace)[3]
         if resample_positions
             for i in 1:n_particles
-                (trace, _) = Gen.metropolis_hastings(trace, initial_pos_proposal, (i,), check=true, observations=constraints)
+                (trace, _) = Gen.metropolis_hastings(trace, initial_pos_proposal, (i,))#, check=true, observations=constraints)
             end
         end
         if cb != nothing
@@ -557,11 +557,15 @@ gg = read_grid(tt)
 pp, bb = read_true_positions_bounces(tt)
 oo = read_observations(tt)
 
-s = Scene(resolution=(1600, 1600), show_axis=false, show_grid=false, limits=FRect(0.0, 0.0, 1.0, 1.0))
+#s = Scene(resolution=(1600, 1600), show_axis=false, show_grid=false, limits=FRect(0.0, 0.0, 1.0, 1.0))
+s = Scene(resolution=(800, 800), show_axis=false, show_grid=false, limits=FRect(0.0, 0.0, 1.0, 1.0))
 draw_grid!(s, gg, arrowcolor=:lightgray, linecolor=:lightgray)
 draw_particle_paths!(s, mm, pp, mass_scale=0.01, colormod=c -> RGBA(c, .5))
 draw_particle_paths!(s, mm, oo, mass_scale=0.01)
+
+#save("../final-writeup/static.png", s)
 display(s)
+
 
 ##
 
@@ -579,26 +583,46 @@ lines!(s, Point2d.(psol))
 
 # ~~ static, second differences of noise ~~
 
-n = 3
-mm = [1.0 for i in 1:n]
-p = ExtraParams(1.0/24, 0.9)
-res = 5
+render_true = false
+render_noise = true
+render_smoothed = false
 
-tt = Gen.simulate(force_model, (1.0, res, n, 0.1, 48, p))
+pretty_field = true
+
+n = 4
+mm = [1.0 for i in 1:n]
+p = ExtraParams(1.0/18, 0.9)
+res = 7
+
+if pretty_field
+    cmap = choicemap()
+    cc = map_grid(x -> begin
+        x = x .- 0.5
+        5 * Vec2d(-x[2], x[1])
+    end, Vec2d, (0.0, 1.0), (0.0, 1.0), res, res)
+    cmap[:force_xs => :vals] = reshape([x[1] for x in cc.values], :)
+    cmap[:force_ys => :vals] = reshape([x[2] for x in cc.values], :)
+    for i in 1:n
+        cmap[:mass_paths => i => :initial_x] = .1 + .8 * (i-1)/(n-1)
+        cmap[:mass_paths => i => :initial_y] = 0.5
+    end
+    tt, _ = Gen.generate(force_model, (1.0, res, n, 0.1, 24, p), cmap)
+    @assert tt[:force_xs => :vals] == cmap[:force_xs => :vals]
+else
+    tt = Gen.simulate(force_model, (1.0, res, n, 0.1, 24, p))
+end
+
 gg = read_grid(tt)
 pp, bb = read_true_positions_bounces(tt)
 oo = read_observations(tt)
 
-render_true = false
-render_noise = false
-render_smoothed = true
 
-s = Scene(resolution=(1200, 1200), show_axis=false, show_grid=false, limits=FRect(0.0, 0.0, 1.0, 1.0))
-draw_grid!(s, gg, arrowcolor=:lightgray, linecolor=:lightgray)
+s = Scene(resolution=(800, 800), show_axis=false, show_grid=false, limits=FRect(0.0, 0.0, 1.0, 1.0))
+draw_grid!(s, gg, arrowcolor=:lightgray, linecolor=:lightgray, scale=p.dt)
 if render_noise || render_smoothed
-    draw_particle_paths!(s, mm, oo, mass_scale=0.01, colormod=c -> RGBA(c, 0.5))
+    draw_particle_paths!(s, mm, oo, mass_scale=0.01)#, colormod=c -> RGBA(c, 0.5))
 else
-    draw_particle_paths!(s, mm, pp, mass_scale=0.01, colormod=c -> RGBA(c, 0.5))
+    draw_particle_paths!(s, mm, pp, mass_scale=0.01)#, colormod=c -> RGBA(c, 0.5))
 end
 
 timesteps = size(oo, 1)
@@ -608,22 +632,26 @@ noisy_vel, noisy_acc = second_differences(oo, bb, mm, xrange=(0.0, 1.0), yrange=
 times = range(0.0, length=timesteps, step=p.dt)
 smoothed_acc = vec_least_squares(times, noisy_acc)
 
-reduce_amt = 12
+reduce_amt = 10
 
 colors = map(i -> get(ColorSchemes.rainbow, (i-1)/n), 1:n)
 for i in 1:n
     if render_true
-        arrows!(s, pp[1:reduce_amt:end-1, i], true_acc[1:reduce_amt:end-1, i] / 24.0, arrowcolor=:blue, linecolor=:blue, arrowsize=0.02, linewidth=3)
+        arrows!(s, pp[1:reduce_amt:end-1, i], true_acc[1:reduce_amt:end-1, i] * p.dt, arrowcolor=:blue, linecolor=:blue, arrowsize=0.02, linewidth=3)
     end
     if render_noise
-        arrows!(s, oo[1:reduce_amt:end-1, i], noisy_acc[1:reduce_amt:end-1, i] / 24.0, arrowcolor=:red, linecolor=:red, arrowsize=0.02, linewidth=3)
+        arrows!(s, oo[1:reduce_amt:end-1, i], noisy_acc[1:reduce_amt:end-1, i] * p.dt, arrowcolor=:red, linecolor=:red, arrowsize=0.02, linewidth=3)
     end
     if render_smoothed
-        arrows!(s, oo[1:reduce_amt:end-1, i], smoothed_acc[1:reduce_amt:end-1, i] / 24.0, arrowcolor=:green, linecolor=:green, arrowsize=0.02, linewidth=3)
+        arrows!(s, oo[1:reduce_amt:end-1, i], smoothed_acc[1:reduce_amt:end-1, i] * p.dt, arrowcolor=:green, linecolor=:green, arrowsize=0.02, linewidth=3)
     end
 end
 
-display(s)
+
+#save("../final-writeup/obstrue.png", s)
+save("../final-writeup/obsnoise.png", s)
+#save("../final-writeup/obssmooth.png", s)
+#display(s)
 
 
 ##
@@ -898,6 +926,8 @@ ll, ss = draw_particle_paths!(s, mm, pp .* 0.0, mass_scale=0.01)
 text!(s, "booting...", transparency=false, textsize=0.03, position=(0.0, w), align=(:left, :top))
 status = s[end]
 
+
+
 display(s)
 
 hard_mcmc(cc, second_diff_proposal, (oo, bb, vec_least_squares, true, false), args, computation=1000, cb=debounce(s, function(trace, step)
@@ -913,7 +943,53 @@ hard_mcmc(cc, second_diff_proposal, (oo, bb, vec_least_squares, true, false), ar
     status[:text] = "mcmc step $step"
 
     #sleep(0.1)
-end))
+end, 1.0))
+
+##
+
+# ~~ mcmc: force + length_scale + initial positions; multiple diagrams
+# run this once
+n = 15
+w = 1.0
+r = 10
+cc = choicemap()
+cc[:noise] = 0.1
+#for i in 1:n
+#    cc[:mass_paths => i => :initial_x] = uniform(0.0, w)
+#    cc[:mass_paths => i => :initial_y] = uniform(0.0, w)
+#end
+
+p = ExtraParams(1.0/24, 0.9)
+args = (w, r, n, 0.1, 48, p)
+
+tt, _ = Gen.generate(force_model, args, cc)
+##
+A = 1
+##
+#run this multiple times
+gg = read_grid(tt)
+oo = read_observations(tt)
+pp, bb = read_true_positions_bounces(tt)
+add_observations!(cc, pp) # note: we use noiseless recordings here
+
+trace = hard_mcmc(cc, second_diff_proposal, (oo, bb, vec_least_squares, true, false), args, computation=500)
+gg_ = read_grid(trace)
+oo_, _ = read_true_positions_bounces(trace)
+
+mm = [1.0 for i in 1:n]
+
+s = Scene(resolution=(800, 800), show_axis=false, show_grid=false, limits=FRect(0.0, 0.0, 1.0, 1.0))
+
+draw_grid!(s, gg, arrowcolor=RGBA(0., 0., 0., 0.1), linecolor=RGBA(0.,0.,0., 0.1))
+guess_grid = draw_grid!(s, gg_, arrowcolor=:lightblue, linecolor=:lightblue)
+
+draw_particle_paths!(s, mm, pp, mass_scale=0.01, colormod=c -> RGBA(c, .2))
+ll, ss = draw_particle_paths!(s, mm, oo_, mass_scale=0.01)
+
+save("../result$A.png", s)
+A += 1
+#display(s)
+
 
 
 ##

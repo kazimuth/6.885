@@ -1,4 +1,5 @@
 # 6.885 Spring 2020
+[Course website](https://www.eecs.mit.edu/academics-admissions/academic-information/subject-updates-spring-2020/68859s917)
 
 ## Final project
 For my final project I implemented inference of force fields from their effect

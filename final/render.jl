@@ -86,7 +86,8 @@ function debounce(s, f, goal_dt=1.0/24)
             start = Base.time()
             f(args...)
             yield() # needed to let Makie draw stuff
-            dt = Base.time() - start
+            pt = Base.time()
+            dt = pt - start
             f_t_est = .9*f_t_est + .1*dt
         end
     end

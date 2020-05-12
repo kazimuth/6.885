@@ -1,3 +1,15 @@
+@inbook{GPs,
+  DATE_ADDED =   {Mon May 11 18:30:29 2020},
+  author =       {Carl Edward Rasmussen},
+  booktitle =    {Advanced Lectures on Machine Learning},
+  doi =          {10.1007/978-3-540-28650-9_4},
+  pages =        {63-71},
+  publisher =    {Springer Berlin Heidelberg},
+  series =       {Advanced Lectures on Machine Learning},
+  title =        {Gaussian Processes in Machine Learning},
+  url =          {https://doi.org/10.1007/978-3-540-28650-9_4},
+  year =         {2004},
+}
 @inproceedings{GenPaper,
  author = {Cusumano-Towner, Marco F. and Saad, Feras A. and Lew, Alexander K. and Mansinghka, Vikash K.},
  title = {Gen: A General-purpose Probabilistic Programming System with Programmable Inference},
@@ -14,4 +26,177 @@
  publisher = {ACM},
  address = {New York, NY, USA},
  keywords = {Markov chain Monte Carlo, Probabilistic programming, sequential Monte Carlo, variational inference},
+}
+@article{Tiramisu,
+  author =       {Baghdadi, Riyadh and Ray, Jessica and Romdhane, Malek Ben and
+                  Sozzo, Emanuele Del and Akkas, Abdurrahman and Zhang, Yunming
+                  and Suriana, Patricia and Kamil, Shoaib and Amarasinghe,
+                  Saman},
+  title =        {Tiramisu: a Polyhedral Compiler for Expressing Fast and
+                  Portable Code},
+  journal =      {CoRR},
+  year =         2018,
+  url =          {http://arxiv.org/abs/1804.10694v5},
+  abstract =     {This paper introduces Tiramisu, a polyhedral framework
+                  designed to generate high performance code for multiple
+                  platforms including multicores, GPUs, and distributed
+                  machines. Tiramisu introduces a scheduling language with novel
+                  extensions to explicitly manage the complexities that arise
+                  when targeting these systems. The framework is designed for
+                  the areas of image processing, stencils, linear algebra and
+                  deep learning. Tiramisu has two main features: it relies on a
+                  flexible representation based on the polyhedral model and it
+                  has a rich scheduling language allowing fine-grained control
+                  of optimizations. Tiramisu uses a four-level intermediate
+                  representation that allows full separation between the
+                  algorithms, loop transformations, data layouts, and
+                  communication. This separation simplifies targeting multiple
+                  hardware architectures with the same algorithm. We evaluate
+                  Tiramisu by writing a set of image processing, deep learning,
+                  and linear algebra benchmarks and compare them with
+                  state-of-the-art compilers and hand-tuned libraries. We show
+                  that Tiramisu matches or outperforms existing compilers and
+                  libraries on different hardware architectures, including
+                  multicore CPUs, GPUs, and distributed machines.},
+  archivePrefix ={arXiv},
+  eprint =       {1804.10694},
+  primaryClass = {cs.PL},
+}
+@article{Taichi,
+  author =       {Yuanming Hu and Tzu-Mao Li and Luke Anderson and Jonathan
+                  Ragan-Kelley and Fr{\'e}do Durand},
+  title =        {Taichi},
+  journal =      {ACM Transactions on Graphics},
+  volume =       38,
+  number =       6,
+  pages =        {1-16},
+  year =         2019,
+  doi =          {10.1145/3355089.3356506},
+  url =          {https://doi.org/10.1145/3355089.3356506},
+  DATE_ADDED =   {Mon May 11 18:49:26 2020},
+}
+@article{Julia,
+  author =       {Bezanson, Jeff and Karpinski, Stefan and Shah, Viral B. and
+                  Edelman, Alan},
+  title =        {Julia: a Fast Dynamic Language for Technical Computing},
+  journal =      {CoRR},
+  year =         2012,
+  url =          {http://arxiv.org/abs/1209.5145v1},
+  abstract =     {Dynamic languages have become popular for scientific
+                  computing. They are generally considered highly productive,
+                  but lacking in performance. This paper presents Julia, a new
+                  dynamic language for technical computing, designed for
+                  performance from the beginning by adapting and extending
+                  modern programming language techniques. A design based on
+                  generic functions and a rich type system simultaneously
+                  enables an expressive programming model and successful type
+                  inference, leading to good performance for a wide range of
+                  programs. This makes it possible for much of the Julia library
+                  to be written in Julia itself, while also incorporating
+                  best-of-breed C and Fortran libraries.},
+  archivePrefix ={arXiv},
+  eprint =       {1209.5145},
+  primaryClass = {cs.PL},
+}
+@article{NumDiffNonsmooth,
+  author =       {Rick Chartrand},
+  title =        {Numerical Differentiation of Noisy, Nonsmooth Data},
+  journal =      {ISRN Applied Mathematics},
+  volume =       2011,
+  number =       {nil},
+  pages =        {1-11},
+  year =         2011,
+  doi =          {10.5402/2011/164564},
+  url =          {https://doi.org/10.5402/2011/164564},
+  DATE_ADDED =   {Mon May 11 19:19:05 2020},
+}
+@article{Halide,
+  author =       {Jonathan Ragan-Kelley and Andrew Adams and Dillon Sharlet and
+                  Connelly Barnes and Sylvain Paris and Marc Levoy and Saman
+                  Amarasinghe and Fr{\'e}do Durand},
+  title =        {Halide},
+  journal =      {Communications of the ACM},
+  volume =       61,
+  number =       1,
+  pages =        {106-115},
+  year =         2017,
+  doi =          {10.1145/3150211},
+  url =          {https://doi.org/10.1145/3150211},
+  DATE_ADDED =   {Mon May 11 19:22:35 2020},
+}
+@article{HMC,
+  author =       {Simon Duane and A.D. Kennedy and Brian J. Pendleton and Duncan
+                  Roweth},
+  title =        {Hybrid Monte Carlo},
+  journal =      {Physics Letters B},
+  volume =       195,
+  number =       2,
+  pages =        {216-222},
+  year =         1987,
+  doi =          {10.1016/0370-2693(87)91197-x},
+  url =          {https://doi.org/10.1016/0370-2693(87)91197-x},
+  DATE_ADDED =   {Mon May 11 20:04:17 2020},
+}
+
+@article{SparseSpectrumGP,
+  author =       {Yang, Ang and Li, Cheng and Rana, Santu and Gupta, Sunil and
+                  Venkatesh, Svetha},
+  title =        {Sparse Spectrum Gaussian Process for Bayesian Optimisation},
+  journal =      {CoRR},
+  year =         2019,
+  url =          {http://arxiv.org/abs/1906.08898v1},
+  abstract =     {We propose a novel sparse spectrum approximation of Gaussian
+                  process (GP) tailored for Bayesian optimisation. Whilst the
+                  current sparse spectrum methods provide good approximations
+                  for regression problems, it is observed that this particular
+                  form of sparse approximations generates an overconfident GP,
+                  i.e. it predicts less variance than the original GP. Since the
+                  balance between predictive mean and the predictive variance is
+                  a key determinant in the success of Bayesian optimisation, the
+                  current sparse spectrum methods are less suitable. We derive a
+                  regularised marginal likelihood for finding the optimal
+                  frequencies in optimisation problems. The regulariser trades
+                  the accuracy in the model fitting with the targeted increase
+                  in the variance of the resultant GP. We first consider the
+                  entropy of the distribution over the maxima as the regulariser
+                  that needs to be maximised. Later we show that the Expected
+                  Improvement acquisition function can also be used as a proxy
+                  for that, thus making the optimisation less computationally
+                  expensive. Experiments show an increase in the Bayesian
+                  optimisation convergence rate over the vanilla sparse spectrum
+                  method.},
+  archivePrefix ={arXiv},
+  eprint =       {1906.08898},
+  primaryClass = {cs.LG},
+}
+@article{UnderstandingSparseGP,
+  author =       {Bauer, Matthias and Wilk, Mark van der and Rasmussen, Carl
+                  Edward},
+  title =        {Understanding Probabilistic Sparse Gaussian Process
+                  Approximations},
+  journal =      {CoRR},
+  year =         2016,
+  url =          {http://arxiv.org/abs/1606.04820v2},
+  abstract =     {Good sparse approximations are essential for practical
+                  inference in Gaussian Processes as the computational cost of
+                  exact methods is prohibitive for large datasets. The Fully
+                  Independent Training Conditional (FITC) and the Variational
+                  Free Energy (VFE) approximations are two recent popular
+                  methods. Despite superficial similarities, these
+                  approximations have surprisingly different theoretical
+                  properties and behave differently in practice. We thoroughly
+                  investigate the two methods for regression both analytically
+                  and through illustrative examples, and draw conclusions to
+                  guide practical application.},
+  archivePrefix ={arXiv},
+  eprint =       {1606.04820},
+  primaryClass = {stat.ML},
+}
+@ARTICLE{UnifyingGP,
+    author = {Joaquin Quiñonero-candela and Carl Edward Rasmussen and Ralf Herbrich},
+    title = {A unifying view of sparse approximate Gaussian process regression},
+    journal = {Journal of Machine Learning Research},
+    year = {2005},
+    volume = {6},
+    pages = {2005}
 }

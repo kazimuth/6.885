@@ -151,7 +151,7 @@
 
   Of course, measured forces would have some variance; so we would treat them as Gaussians when sampling. Particles might not cross all cells, however. Luckily, we could sample very nice values for unobserved cells using Gaussian Process regression.
 
-  We implemented this algorithm... and it still didn't work. We tried visualizing the resulting proposals, and noticed that they were *much noiser* than the original prior, rather than being less noisy! This  turned out to be a result of the differentiation algorithm we were using. Naive second differences turns out to massively magnify noise [[citep:NumDiffNonsmooth]]. We surveyed denoising algorithms, and decided to smooth the observed accelerations using linear least squares. We fit a cubic function to the x and y components of the observed acceleration traces, and this gave satisfactory results. (See figure [[fig:obsall]] for a visualization of this smoothing.)
+  We implemented this algorithm... and it still didn't work. We tried visualizing the resulting proposals, and noticed that they were *much noiser* than the original prior, rather than being less noisy! This  turned out to be a result of the differentiation algorithm we were using. Naive second differences turns out to massively magnify noise [[citep:NumDiffNonsmooth]]. We surveyed denoising algorithms, and decided to smooth the observed accelerations using linear least squares. We fit a cubic function to the x and y components of the observed acceleration traces, and this gave satisfactory results. (See Figure [[fig:obsall]] for a visualization of this smoothing.)
 
   #+LATEX_HEADER: \definecolor{goodgreen}{RGB}{0,140,0}
 
@@ -165,23 +165,20 @@
 
   (One caveat of this algorithm was that it was significantly complicated by boundary behavior. We ended up having to observe whether particles bounced off the boundary without any noise, in order to properly understand the boundaries... we leave lifting this restriction to future work.)
 
-  We then implemented heirarchical monte carlo, attempting to infer the length scale of the GP kernel and particle initial positions. We were able to get this working by implementing a custom proposal distribution for initial particles
+  We then implemented heirarchical monte carlo, attempting to infer the length scale of the GP kernel and particle initial positions. We were able to get this working by implementing a custom proposal distribution for initial particles, and by moving the length scale proposal into our custom proposal. (Otherwise alternative length scales would never be selected, because they would resample the field without our proposal's knowledge.)
 
-  Our algorithm often converges to reasonable approximations of the force field.
+  Our algorithm often converges to reasonable approximations of the force field. See Figure [[fig:sample]] for examples of its outputs.
 
-**** TODO viz fitting
-**** TODO graphs
+  #+name: fig:sample
+  #+caption: Samples from the posterior distribution after 500 steps of metropolis-hastings. True starting positions and paths are drawn lightly; the inferred force field is drawn lightly, and paths the particles would have taken if placed in it are drawn darkly. Note that the middle case failed to converge in the time limit.
+  #+attr_latex: :width 6in
+  #+attr_latex: :float center
+  [[./result1.png]]
 
 * Future Work
+  In the future, we'd like to try using smarter denoising algorithms, like that proposed in [[cite:NumDiffNonsmooth]]; or, alternatively, neural denoising.
 
-  numdiffnonsmooth
-
-  something like halide / taichi, but for inference?
-  that's kinda what Gen is actually.
-
-  reducing obs noise scale
-
-* Conclusion
+  We'd also like to try implementing a sparse GP approximation, possibly using Taichi, and compare its performance with our implementation.
 
 #+LATEX: \bibliography{finalwriteup}
 #+LATEX: \bibliographystyle{iclr2020conference}
